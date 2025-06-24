@@ -1,0 +1,67 @@
+{
+  "api": {
+    "version": "v2",
+    "basePath": "/v2",
+    "rateLimit": {
+      "requests": 1000,
+      "window": "15m"
+    },
+    "cors": {
+      "origins": ["http://localhost:3002", "https://app.listbackup.ai"],
+      "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      "headers": ["Content-Type", "Authorization", "X-Api-Key", "X-Requested-With"],
+      "credentials": true
+    }
+  },
+  "auth": {
+    "jwtExpiry": "1h",
+    "refreshTokenExpiry": "30d",
+    "mfaEnabled": true,
+    "passwordPolicy": {
+      "minLength": 8,
+      "requireUppercase": true,
+      "requireLowercase": true,
+      "requireNumbers": true,
+      "requireSymbols": true
+    }
+  },
+  "backup": {
+    "maxFileSize": "5GB",
+    "chunkSize": "10MB",
+    "compressionLevel": 6,
+    "encryptionEnabled": true,
+    "retentionPolicy": {
+      "defaultDays": 365,
+      "maxDays": 2555
+    }
+  },
+  "integrations": {
+    "googleDrive": {
+      "scopes": ["https://www.googleapis.com/auth/drive.readonly"],
+      "rateLimitPerSecond": 10
+    },
+    "dropbox": {
+      "rateLimitPerSecond": 5
+    },
+    "slack": {
+      "rateLimitPerSecond": 1,
+      "scopes": ["files:read", "channels:read", "groups:read", "im:read", "mpim:read"]
+    },
+    "oneDrive": {
+      "scopes": ["Files.Read.All"],
+      "rateLimitPerSecond": 10
+    },
+    "notion": {
+      "rateLimitPerSecond": 3
+    }
+  },
+  "monitoring": {
+    "metricsRetentionDays": 90,
+    "logRetentionDays": 14,
+    "alertThresholds": {
+      "errorRate": 0.05,
+      "responseTime": 5000,
+      "failureRate": 0.1
+    }
+  }
+}

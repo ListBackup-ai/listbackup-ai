@@ -1,0 +1,356 @@
+service: listbackup-domains
+
+frameworkVersion: '4'
+
+provider:
+  name: aws
+  profile: listbackup.ai
+  runtime: provided.al2023
+  architecture: arm64
+  stage: ${opt:stage, 'main'}
+  region: us-west-2
+  memorySize: 256
+  timeout: 30
+  httpApi:
+    id: ${cf:listbackup-api-gateway-${self:provider.stage}.HttpApiId}
+  environment:
+    STAGE: ${self:provider.stage}
+    COGNITO_USER_POOL_ID: ${ssm:/cognito-user-pool-id}
+    COGNITO_CLIENT_ID: ${ssm:/cognito-client-id}
+    COGNITO_CLIENT_SECRET: ${ssm:/cognito-client-secret}
+    COGNITO_REGION: ${ssm:/cognito-region}
+    COGNITO_JWKS_URI: ${ssm:/cognito-jwks-uri}
+    COGNITO_ISSUER: ${ssm:/cognito-issuer}
+    DOMAINS_TABLE: ${self:custom.domainsTable}
+    BRANDING_TABLE: ${self:custom.brandingTable}
+    DOMAIN_VERIFICATION_TABLE: ${self:custom.domainVerificationTable}
+    HOSTED_ZONE_ID: ${env:HOSTED_ZONE_ID, 'Z1234567890ABC'} # Placeholder - will be created
+    CERTIFICATE_ARN: ${env:CERTIFICATE_ARN, 'arn:aws:acm:us-west-2:123456789012:certificate/12345678-1234-1234-1234-123456789012'} # Placeholder
+    S3_BRANDING_BUCKET: ${self:custom.brandingBucket}
+    API_GATEWAY_ID: k0uejguppc # Your HTTP API Gateway ID
+    CLOUDFRONT_DISTRIBUTION_ID: ${env:CLOUDFRONT_DISTRIBUTION_ID, 'E1234567890ABC'} # Placeholder
+    API_VERSION: v1
+    API_REFERENCE: listbackup-api
+  iam:
+    role:
+      statements:
+        # Comprehensive DynamoDB permissions with wildcards
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:BatchGetItem
+            - dynamodb:BatchWriteItem
+            - dynamodb:ConditionCheckItem
+            - dynamodb:DescribeTable
+            - dynamodb:CreateTable
+            - dynamodb:ListTables
+            - dynamodb:DescribeTimeToLive
+            - dynamodb:UpdateTimeToLive
+            - dynamodb:TagResource
+            - dynamodb:UntagResource
+            - dynamodb:ListTagsOfResource
+            - dynamodb:DescribeStream
+            - dynamodb:GetRecords
+            - dynamodb:GetShardIterator
+            - dynamodb:ListStreams
+            - dynamodb:DescribeLimits
+            - dynamodb:DescribeBackup
+            - dynamodb:ListBackups
+          Resource:
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/index/*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/stream/*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/backup/*"
+        # Additional DynamoDB permissions for account-level operations
+        - Effect: Allow
+          Action:
+            - dynamodb:ListTables
+            - dynamodb:DescribeLimits
+          Resource: "*"
+        - Effect: Allow
+          Action:
+            - route53:ChangeResourceRecordSets
+            - route53:GetChange
+            - route53:ListResourceRecordSets
+            - route53:GetHostedZone
+            - route53:ListHostedZones
+            - route53:CreateHostedZone
+          Resource:
+            - arn:aws:route53:::hostedzone/*
+            - arn:aws:route53:::change/*
+        - Effect: Allow
+          Action:
+            - acm:RequestCertificate
+            - acm:DescribeCertificate
+            - acm:DeleteCertificate
+            - acm:ListCertificates
+            - acm:AddTagsToCertificate
+            - acm:GetCertificate
+          Resource: '*'
+        - Effect: Allow
+          Action:
+            - cloudfront:UpdateDistribution
+            - cloudfront:GetDistribution
+            - cloudfront:CreateDistribution
+            - cloudfront:TagResource
+          Resource: '*'
+        - Effect: Allow
+          Action:
+            - apigateway:POST
+            - apigateway:GET
+            - apigateway:PUT
+            - apigateway:DELETE
+            - apigateway:PATCH
+          Resource:
+            - arn:aws:apigateway:${self:provider.region}::/domainnames
+            - arn:aws:apigateway:${self:provider.region}::/domainnames/*
+        - Effect: Allow
+          Action:
+            - s3:PutObject
+            - s3:GetObject
+            - s3:DeleteObject
+            - s3:PutObjectAcl
+          Resource:
+            - arn:aws:s3:::${self:custom.brandingBucket}/*
+
+custom:
+  stage: ${opt:stage, 'dev'}
+  domainsTable: listbackup-domains-${self:custom.stage}
+  brandingTable: listbackup-branding-${self:custom.stage}
+  domainVerificationTable: listbackup-domain-verification-${self:custom.stage}
+  brandingBucket: listbackup-branding-${self:custom.stage}
+
+functions:
+  # Domain Management
+  add-domain:
+    handler: bootstrap
+    package:
+      artifact: bin/domains-add.zip
+    events:
+      - httpApi:
+          path: /domains
+          method: post
+          authorizer:
+            type: jwt
+            authorizerId: ${cf:listbackup-api-gateway-${self:provider.stage}-CognitoAuthorizerId}
+
+  list-domains:
+    handler: bootstrap
+    package:
+      artifact: bin/domains-list.zip
+    events:
+      - httpApi:
+          path: /domains
+          method: get
+          authorizer:
+            type: jwt
+            authorizerId: ${cf:listbackup-api-gateway-${self:provider.stage}-CognitoAuthorizerId}
+
+  remove-domain:
+    handler: bootstrap
+    package:
+      artifact: bin/domains-remove.zip
+    events:
+      - httpApi:
+          path: /domains/{domainId}
+          method: delete
+          authorizer:
+            type: jwt
+            authorizerId: ${cf:listbackup-api-gateway-${self:provider.stage}-CognitoAuthorizerId}
+
+  verify-domain:
+    handler: bootstrap
+    package:
+      artifact: bin/domains-verify.zip
+    events:
+      - httpApi:
+          path: /domains/{domainId}/verify
+          method: post
+          authorizer:
+            type: jwt
+            authorizerId: ${cf:listbackup-api-gateway-${self:provider.stage}-CognitoAuthorizerId}
+
+  # DNS Management
+  get-dns-instructions:
+    handler: bootstrap
+    package:
+      artifact: bin/domains-get-dns-instructions.zip
+    events:
+      - httpApi:
+          path: /domains/{domainId}/dns-instructions
+          method: get
+          authorizer:
+            type: jwt
+            authorizerId: ${cf:listbackup-api-gateway-${self:provider.stage}-CognitoAuthorizerId}
+
+  configure-mail-domain:
+    handler: bootstrap
+    package:
+      artifact: bin/domains-configure-mail.zip
+    events:
+      - httpApi:
+          path: /domains/{domainId}/mail-configuration
+          method: post
+          authorizer:
+            type: jwt
+            authorizerId: ${cf:listbackup-api-gateway-${self:provider.stage}-CognitoAuthorizerId}
+
+  # Activate domain (add to API Gateway)
+  activate-domain:
+    handler: bootstrap
+    package:
+      artifact: bin/domains-activate.zip
+    events:
+      - httpApi:
+          path: /domains/{domainId}/activate
+          method: post
+          authorizer:
+            type: jwt
+            authorizerId: ${cf:listbackup-api-gateway-${self:provider.stage}-CognitoAuthorizerId}
+
+  # Custom domain setup (simplified)
+  setup-custom-domain:
+    handler: bootstrap
+    package:
+      artifact: bin/domains-setup-custom.zip
+    events:
+      - httpApi:
+          path: /domains/setup-custom
+          method: post
+          authorizer:
+            type: jwt
+            authorizerId: ${cf:listbackup-api-gateway-${self:provider.stage}-CognitoAuthorizerId}
+
+resources:
+  Resources:
+    # Domains Table
+    DomainsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.domainsTable}
+        AttributeDefinitions:
+          - AttributeName: domainId
+            AttributeType: S
+          - AttributeName: accountId
+            AttributeType: S
+          - AttributeName: domainName
+            AttributeType: S
+        KeySchema:
+          - AttributeName: domainId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: accountId-index
+            KeySchema:
+              - AttributeName: accountId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+          - IndexName: domainName-index
+            KeySchema:
+              - AttributeName: domainName
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+        BillingMode: PAY_PER_REQUEST
+
+    # Branding Table
+    BrandingTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.brandingTable}
+        AttributeDefinitions:
+          - AttributeName: brandingId
+            AttributeType: S
+          - AttributeName: accountId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: brandingId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: accountId-index
+            KeySchema:
+              - AttributeName: accountId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+        BillingMode: PAY_PER_REQUEST
+
+    # Domain Verification Table
+    DomainVerificationTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.domainVerificationTable}
+        AttributeDefinitions:
+          - AttributeName: domainId
+            AttributeType: S
+          - AttributeName: verificationToken
+            AttributeType: S
+        KeySchema:
+          - AttributeName: domainId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: verificationToken-index
+            KeySchema:
+              - AttributeName: verificationToken
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+        BillingMode: PAY_PER_REQUEST
+
+    # S3 Bucket for Branding Assets
+    BrandingBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.brandingBucket}
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: false
+          BlockPublicPolicy: false
+          IgnorePublicAcls: false
+          RestrictPublicBuckets: false
+        CorsConfiguration:
+          CorsRules:
+            - AllowedHeaders:
+                - '*'
+              AllowedMethods:
+                - GET
+                - PUT
+                - POST
+                - DELETE
+              AllowedOrigins:
+                - '*'
+              MaxAge: 3000
+
+    # S3 Bucket Policy for Public Read Access
+    BrandingBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: {"Ref": "BrandingBucket"}
+        PolicyDocument:
+          Statement:
+            - Sid: PublicReadGetObject
+              Effect: Allow
+              Principal: '*'
+              Action:
+                - s3:GetObject
+              Resource: {n::sub: \}
+
+  Outputs:
+    DomainsTableName:
+      Value: {"Ref": "DomainsTable"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-DomainsTableName
+    
+    BrandingTableName:
+      Value: {"Ref": "BrandingTable"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-BrandingTableName
+    
+    BrandingBucketName:
+      Value: {"Ref": "BrandingBucket"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-BrandingBucketName

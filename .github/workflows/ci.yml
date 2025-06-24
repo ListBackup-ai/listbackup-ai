@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test-frontend:
+    name: Test Frontend
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: platforms/web/package-lock.json
+    
+    - name: Install dependencies
+      working-directory: platforms/web
+      run: npm ci
+    
+    - name: Run linter
+      working-directory: platforms/web
+      run: npm run lint
+    
+    - name: Run type check
+      working-directory: platforms/web
+      run: npm run type-check || true
+    
+    - name: Run tests
+      working-directory: platforms/web
+      run: npm test -- --passWithNoTests
+
+  test-backend-go:
+    name: Test Backend (Go)
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+    
+    - name: Install dependencies
+      working-directory: backend/golang
+      run: go mod download
+    
+    - name: Run tests
+      working-directory: backend/golang
+      run: go test ./...
+    
+    - name: Run linter
+      uses: golangci/golangci-lint-action@v6
+      with:
+        version: latest
+        working-directory: backend/golang
+
+  test-backend-nodejs:
+    name: Test Backend (Node.js)
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+    
+    - name: Install dependencies
+      working-directory: backend/nodejs-first-attempt
+      run: npm ci || npm install
+    
+    - name: Run tests
+      working-directory: backend/nodejs-first-attempt
+      run: npm test -- --passWithNoTests || true
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: 'trivy-results.sarif'

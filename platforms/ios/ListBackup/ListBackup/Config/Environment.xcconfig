@@ -1,0 +1,21 @@
+// Configuration settings file format documentation can be found at:
+// https://help.apple.com/xcode/#/dev745c5c974
+
+// API Configuration
+API_BASE_URL = https://main.api.listbackup.ai
+
+// Authentication
+COGNITO_REGION = us-east-1
+COGNITO_USER_POOL_ID = 
+COGNITO_CLIENT_ID = 
+
+// Push Notifications
+PUSH_NOTIFICATION_SERVER = 
+
+// Analytics
+MIXPANEL_TOKEN = 
+
+// Feature Flags
+ENABLE_AI_ASSISTANT = YES
+ENABLE_DATA_EXPORT = YES
+ENABLE_WIDGETS = YES

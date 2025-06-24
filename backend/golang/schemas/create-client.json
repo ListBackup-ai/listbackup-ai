@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "email": {
+      "type": "string",
+      "format": "email"
+    },
+    "company": {
+      "type": "string",
+      "maxLength": 100
+    },
+    "type": {
+      "type": "string",
+      "enum": ["individual", "business", "enterprise"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "inactive", "pending"]
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "metadata": {
+      "type": "object"
+    }
+  },
+  "required": ["name", "email"],
+  "additionalProperties": false
+}

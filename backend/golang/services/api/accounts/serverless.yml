@@ -1,0 +1,209 @@
+service: listbackup-accounts
+
+frameworkVersion: '4'
+
+provider:
+  name: aws
+  profile: listbackup.ai
+  runtime: provided.al2023
+  architecture: arm64  # Better price/performance ratio
+  region: us-west-2
+  stage: ${opt:stage, 'main'}
+  memorySize: 512
+  timeout: 29
+  tracing:
+    lambda: true
+    apiGateway: true  # Enable API Gateway tracing
+  httpApi:
+    id: ${cf:listbackup-api-gateway-${self:provider.stage}.HttpApiId}
+  environment:
+    STAGE: ${self:provider.stage}
+    # Cognito configuration from infrastructure-cognito service
+    COGNITO_USER_POOL_ID: ${cf:listbackup-infrastructure-cognito-${self:provider.stage}.CognitoUserPoolId}
+    COGNITO_CLIENT_ID: ${cf:listbackup-infrastructure-cognito-${self:provider.stage}.CognitoUserPoolClientId}
+    COGNITO_CLIENT_SECRET: ""  # No secret for public client
+    COGNITO_REGION: ${self:provider.region}
+    COGNITO_JWKS_URI: ${cf:listbackup-infrastructure-cognito-${self:provider.stage}.CognitoJwksUri}
+    COGNITO_ISSUER: ${cf:listbackup-infrastructure-cognito-${self:provider.stage}.CognitoIssuer}
+    # DynamoDB table names from infrastructure-dynamodb service
+    USERS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UsersTableName}
+    ACCOUNTS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.AccountsTableName}
+    USER_ACCOUNTS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UserAccountsTableName}
+    SOURCES_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.SourcesTableName}
+    ACTIVITY_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.ActivityTableName}
+    # EventBridge from infrastructure-eventbridge service
+    EVENT_BUS_NAME: ${cf:listbackup-infrastructure-eventbridge-${self:provider.stage}.EventBusName}
+    # API configuration
+    API_VERSION: v1
+    API_REFERENCE: listbackup-api
+    # Performance and monitoring
+    X_AMZN_TRACE_ID: enabled
+  iam:
+    role:
+      statements:
+        # DynamoDB permissions for account tables
+        - Effect: Allow
+          Action:
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:BatchGetItem
+            - dynamodb:BatchWriteItem
+          Resource:
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UsersTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.AccountsTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UserAccountsTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.SourcesTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.ActivityTableArn}
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UsersTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.AccountsTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UserAccountsTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.SourcesTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.ActivityTableArn}/index/*"
+        # EventBridge permissions for account events
+        - Effect: Allow
+          Action:
+            - events:PutEvents
+          Resource:
+            - ${cf:listbackup-infrastructure-eventbridge-${self:provider.stage}.EventBusArn}
+        # CloudWatch Logs permissions
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource: "arn:aws:logs:${self:provider.region}:*:*"
+        # X-Ray tracing permissions
+        - Effect: Allow
+          Action:
+            - xray:PutTraceSegments
+            - xray:PutTelemetryRecords
+          Resource: "*"
+
+package:
+  individually: true
+
+functions:
+  # List all accounts for the user
+  listAccounts:
+    handler: bootstrap
+    description: List all accounts accessible to the authenticated user
+    package:
+      artifact: bin/accounts/list.zip
+    events:
+      - httpApi:
+          path: /accounts
+          method: get
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: list-accounts
+
+  # Create a new top-level account
+  createAccount:
+    handler: bootstrap
+    description: Create a new account in the hierarchical structure
+    package:
+      artifact: bin/accounts/create.zip
+    events:
+      - httpApi:
+          path: /accounts
+          method: post
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: create-account
+
+  # Get a specific account by its ID
+  getAccount:
+    handler: bootstrap
+    description: Get a specific account by its ID
+    package:
+      artifact: bin/accounts/get.zip
+    events:
+      - httpApi:
+          path: /accounts/{accountId}
+          method: get
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: account-get
+
+  # Update a specific account
+  updateAccount:
+    handler: bootstrap
+    description: Update account details for a specific account
+    package:
+      artifact: bin/accounts/update.zip
+    events:
+      - httpApi:
+          path: /accounts/{accountId}
+          method: put
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: account-update
+
+  # Delete a specific account
+  deleteAccount:
+    handler: bootstrap
+    description: Delete an account and all associated data
+    package:
+      artifact: bin/accounts/delete.zip
+    events:
+      - httpApi:
+          path: /accounts/{accountId}
+          method: delete
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: delete-account
+
+  # Create a sub-account under a parent account
+  createSubAccount:
+    handler: bootstrap
+    description: Create a sub-account under a specified parent account
+    package:
+      artifact: bin/accounts/create-sub-account.zip
+    events:
+      - httpApi:
+          path: /accounts/{parentAccountId}/sub-accounts
+          method: post
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: account-create-sub-account
+
+  # List the hierarchy for a given account
+  listAccountHierarchy:
+    handler: bootstrap
+    description: List the full hierarchy of accounts under a given account
+    package:
+      artifact: bin/accounts/list-hierarchy.zip
+    events:
+      - httpApi:
+          path: /accounts/{accountId}/hierarchy
+          method: get
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: account-list-hierarchy
+
+  # Switch the user's active context to a different account
+  switchAccountContext:
+    handler: bootstrap
+    description: Switch the user's active account context
+    package:
+      artifact: bin/accounts/switch-context.zip
+    events:
+      - httpApi:
+          path: /accounts/switch
+          method: post
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: account-switch-context
+

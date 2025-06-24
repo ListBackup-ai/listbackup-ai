@@ -1,0 +1,366 @@
+# Serverless configuration for Billing & Subscription Management
+service: listbackup-billing
+
+frameworkVersion: "4"
+
+provider:
+  name: aws
+  profile: listbackup.ai
+  runtime: provided.al2
+  architecture: arm64
+  region: us-west-2
+  stage: ${opt:stage, 'main'}
+  
+  environment:
+    DYNAMODB_TABLE: ${self:service}-${self:provider.stage}
+    COGNITO_USER_POOL_ID: ${ssm:/${self:provider.stage}/cognito/user-pool-id}
+    STRIPE_SECRET_KEY: ${ssm:/${self:provider.stage}/stripe/secret-key~true}
+    STRIPE_WEBHOOK_SECRET: ${ssm:/${self:provider.stage}/stripe/webhook-secret~true}
+    
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:BatchGetItem
+            - dynamodb:BatchWriteItem
+          Resource:
+            - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.DYNAMODB_TABLE}
+            - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.DYNAMODB_TABLE}/index/*
+        - Effect: Allow
+          Action:
+            - cognito-idp:AdminAddUserToGroup
+            - cognito-idp:AdminRemoveUserFromGroup
+            - cognito-idp:AdminListGroupsForUser
+            - cognito-idp:ListUsersInGroup
+            - cognito-idp:CreateGroup
+            - cognito-idp:UpdateGroup
+            - cognito-idp:DeleteGroup
+            - cognito-idp:GetGroup
+            - cognito-idp:ListGroups
+          Resource:
+            - arn:aws:cognito-idp:${self:provider.region}:*:userpool/${self:provider.environment.COGNITO_USER_POOL_ID}
+        - Effect: Allow
+          Action:
+            - ssm:GetParameter
+            - ssm:GetParameters
+          Resource:
+            - arn:aws:ssm:${self:provider.region}:*:parameter/${self:provider.stage}/*
+
+plugins:
+  - serverless-go-plugin
+
+custom:
+  go:
+    supportedRuntimes: ["provided.al2"]
+    buildProvidedRuntimeAsBootstrap: true
+
+functions:
+  # Subscription Management
+  create-subscription:
+    handler: cmd/handlers/billing/create-subscription/main.go
+    events:
+      - http:
+          path: /billing/subscriptions
+          method: post
+          cors: true
+          authorizer:
+            name: ${self:service}-${self:provider.stage}-authorizer
+            type: LAMBDA
+            function: ${cf:listbackup-api-auth-${self:provider.stage}.AuthorizerLambdaFunction}
+            resultTtlInSeconds: 30
+            identitySource: method.request.header.Authorization
+    timeout: 30
+
+  get-subscription:
+    handler: cmd/handlers/billing/get-subscription/main.go
+    events:
+      - http:
+          path: /billing/subscription
+          method: get
+          cors: true
+          authorizer:
+            name: ${self:service}-${self:provider.stage}-authorizer
+            type: LAMBDA
+            function: ${cf:listbackup-api-auth-${self:provider.stage}.AuthorizerLambdaFunction}
+            resultTtlInSeconds: 30
+            identitySource: method.request.header.Authorization
+    timeout: 15
+
+  cancel-subscription:
+    handler: cmd/handlers/billing/cancel-subscription/main.go
+    events:
+      - http:
+          path: /billing/subscription/cancel
+          method: post
+          cors: true
+          authorizer:
+            name: ${self:service}-${self:provider.stage}-authorizer
+            type: LAMBDA
+            function: ${cf:listbackup-api-auth-${self:provider.stage}.AuthorizerLambdaFunction}
+            resultTtlInSeconds: 30
+            identitySource: method.request.header.Authorization
+    timeout: 30
+
+  # Plan Management
+  list-plans:
+    handler: cmd/handlers/billing/list-plans/main.go
+    events:
+      - http:
+          path: /billing/plans
+          method: get
+          cors: true
+    timeout: 15
+
+  # Payment Methods
+  list-payment-methods:
+    handler: cmd/handlers/billing/list-payment-methods/main.go
+    events:
+      - http:
+          path: /billing/payment-methods
+          method: get
+          cors: true
+          authorizer:
+            name: ${self:service}-${self:provider.stage}-authorizer
+            type: LAMBDA
+            function: ${cf:listbackup-api-auth-${self:provider.stage}.AuthorizerLambdaFunction}
+            resultTtlInSeconds: 30
+            identitySource: method.request.header.Authorization
+    timeout: 15
+
+  # Invoices
+  list-invoices:
+    handler: cmd/handlers/billing/list-invoices/main.go
+    events:
+      - http:
+          path: /billing/invoices
+          method: get
+          cors: true
+          authorizer:
+            name: ${self:service}-${self:provider.stage}-authorizer
+            type: LAMBDA
+            function: ${cf:listbackup-api-auth-${self:provider.stage}.AuthorizerLambdaFunction}
+            resultTtlInSeconds: 30
+            identitySource: method.request.header.Authorization
+    timeout: 15
+
+  # Usage Tracking
+  get-usage:
+    handler: cmd/handlers/billing/get-usage/main.go
+    events:
+      - http:
+          path: /billing/usage
+          method: get
+          cors: true
+          authorizer:
+            name: ${self:service}-${self:provider.stage}-authorizer
+            type: LAMBDA
+            function: ${cf:listbackup-api-auth-${self:provider.stage}.AuthorizerLambdaFunction}
+            resultTtlInSeconds: 30
+            identitySource: method.request.header.Authorization
+    timeout: 15
+
+  # Stripe Webhook
+  stripe-webhook:
+    handler: cmd/handlers/billing/stripe-webhook/main.go
+    events:
+      - http:
+          path: /billing/stripe/webhook
+          method: post
+          cors: false
+    timeout: 30
+
+  # Analytics & Reporting
+  billing-analytics:
+    handler: cmd/handlers/billing/analytics/main.go
+    events:
+      - http:
+          path: /billing/analytics
+          method: get
+          cors: true
+          authorizer:
+            name: ${self:service}-${self:provider.stage}-authorizer
+            type: LAMBDA
+            function: ${cf:listbackup-api-auth-${self:provider.stage}.AuthorizerLambdaFunction}
+            resultTtlInSeconds: 30
+            identitySource: method.request.header.Authorization
+    timeout: 30
+
+  # Plan Comparison
+  plan-comparison:
+    handler: cmd/handlers/billing/plan-comparison/main.go
+    events:
+      - http:
+          path: /billing/plan-comparison
+          method: get
+          cors: true
+    timeout: 15
+
+  # Enterprise Billing
+  enterprise-billing:
+    handler: cmd/handlers/billing/enterprise/main.go
+    events:
+      - http:
+          path: /billing/enterprise
+          method: post
+          cors: true
+          authorizer:
+            name: ${self:service}-${self:provider.stage}-authorizer
+            type: LAMBDA
+            function: ${cf:listbackup-api-auth-${self:provider.stage}.AuthorizerLambdaFunction}
+            resultTtlInSeconds: 30
+            identitySource: method.request.header.Authorization
+    timeout: 30
+
+resources:
+  Resources:
+    # DynamoDB Table for Billing Data
+    BillingTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.DYNAMODB_TABLE}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: pk
+            AttributeType: S
+          - AttributeName: sk
+            AttributeType: S
+          - AttributeName: gsi1pk
+            AttributeType: S
+          - AttributeName: gsi1sk
+            AttributeType: S
+          - AttributeName: gsi2pk
+            AttributeType: S
+          - AttributeName: gsi2sk
+            AttributeType: S
+        KeySchema:
+          - AttributeName: pk
+            KeyType: HASH
+          - AttributeName: sk
+            KeyType: RANGE
+        GlobalSecondaryIndexes:
+          - IndexName: GSI1
+            KeySchema:
+              - AttributeName: gsi1pk
+                KeyType: HASH
+              - AttributeName: gsi1sk
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          - IndexName: GSI2
+            KeySchema:
+              - AttributeName: gsi2pk
+                KeyType: HASH
+              - AttributeName: gsi2sk
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        SSESpecification:
+          SSEEnabled: true
+        Tags:
+          - Key: Service
+            Value: listbackup-billing
+          - Key: Stage
+            Value: ${self:provider.stage}
+
+    # CloudWatch Log Groups
+    CreateSubscriptionLogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        LogGroupName: /aws/lambda/${self:service}-${self:provider.stage}-create-subscription
+        RetentionInDays: 14
+
+    GetSubscriptionLogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        LogGroupName: /aws/lambda/${self:service}-${self:provider.stage}-get-subscription
+        RetentionInDays: 14
+
+    CancelSubscriptionLogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        LogGroupName: /aws/lambda/${self:service}-${self:provider.stage}-cancel-subscription
+        RetentionInDays: 14
+
+    ListPlansLogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        LogGroupName: /aws/lambda/${self:service}-${self:provider.stage}-list-plans
+        RetentionInDays: 14
+
+    ListPaymentMethodsLogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        LogGroupName: /aws/lambda/${self:service}-${self:provider.stage}-list-payment-methods
+        RetentionInDays: 14
+
+    ListInvoicesLogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        LogGroupName: /aws/lambda/${self:service}-${self:provider.stage}-list-invoices
+        RetentionInDays: 14
+
+    GetUsageLogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        LogGroupName: /aws/lambda/${self:service}-${self:provider.stage}-get-usage
+        RetentionInDays: 14
+
+    StripeWebhookLogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        LogGroupName: /aws/lambda/${self:service}-${self:provider.stage}-stripe-webhook
+        RetentionInDays: 30
+
+    BillingAnalyticsLogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        LogGroupName: /aws/lambda/${self:service}-${self:provider.stage}-billing-analytics
+        RetentionInDays: 14
+
+    PlanComparisonLogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        LogGroupName: /aws/lambda/${self:service}-${self:provider.stage}-plan-comparison
+        RetentionInDays: 14
+
+    EnterpriseBillingLogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        LogGroupName: /aws/lambda/${self:service}-${self:provider.stage}-enterprise-billing
+        RetentionInDays: 30
+
+outputs:
+  BillingTableName:
+    Value: {"Ref": "BillingTable"}
+    Export:
+      Name: ${self:service}-${self:provider.stage}-table-name
+
+  BillingTableArn:
+    Value: {"Fn::GetAtt": ["BillingTable", "Arn"]}
+    Export:
+      Name: ${self:service}-${self:provider.stage}-table-arn
+
+  StripeWebhookUrl:
+    Value:
+      Fn::Join:
+        - ''
+        - - https://
+          - Ref: ApiGatewayRestApi
+          - .execute-api.
+          - ${self:provider.region}
+          - .amazonaws.com/
+          - ${self:provider.stage}
+          - /billing/stripe/webhook
+    Export:
+      Name: ${self:service}-${self:provider.stage}-stripe-webhook-url

@@ -1,0 +1,725 @@
+openapi: 3.0.0
+info:
+  title: ListBackup.ai API
+  version: 2.0.0
+  description: |
+    The ListBackup.ai API provides comprehensive data backup and synchronization services for various platforms and integrations.
+    
+    ## Authentication
+    All endpoints require JWT authentication via Cognito. Include the Bearer token in the Authorization header:
+    ```
+    Authorization: Bearer <your-jwt-token>
+    ```
+    
+    ## Architecture
+    The API follows a hierarchical structure:
+    - **Platforms**: Available integrations (Keap, Stripe, etc.)
+    - **Platform Connections**: Your authenticated connections to platforms
+    - **Source Groups**: Logical groupings of related sources
+    - **Sources**: Individual data sources within connections
+  contact:
+    name: ListBackup.ai Support
+    url: https://listbackup.ai/support
+    email: support@listbackup.ai
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+servers:
+  - url: https://9sj3qz07ie.execute-api.us-east-1.amazonaws.com
+    description: Production API
+  - url: https://dev.api.listbackup.ai
+    description: Development API
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token from Cognito authentication
+      
+  schemas:
+    User:
+      type: object
+      properties:
+        userId:
+          type: string
+          example: "user:123e4567-e89b-12d3-a456-426614174000"
+        email:
+          type: string
+          format: email
+          example: "user@example.com"
+        name:
+          type: string
+          example: "John Doe"
+        status:
+          type: string
+          enum: [active, inactive, pending]
+          example: "active"
+        currentAccount:
+          $ref: '#/components/schemas/CurrentAccount'
+        preferences:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+        lastLoginAt:
+          type: string
+          format: date-time
+          
+    CurrentAccount:
+      type: object
+      properties:
+        accountId:
+          type: string
+          example: "account:123e4567-e89b-12d3-a456-426614174000"
+        accountName:
+          type: string
+          example: "My Company"
+        company:
+          type: string
+          example: "Acme Corp"
+        role:
+          type: string
+          example: "Owner"
+        permissions:
+          type: object
+          additionalProperties: true
+        isCurrent:
+          type: boolean
+          example: true
+          
+    Platform:
+      type: object
+      properties:
+        platformId:
+          type: string
+          example: "keap"
+        name:
+          type: string
+          example: "Keap"
+        description:
+          type: string
+          example: "CRM and marketing automation platform"
+        category:
+          type: string
+          example: "CRM"
+        logoUrl:
+          type: string
+          format: uri
+          example: "https://logos.listbackup.ai/keap.png"
+        website:
+          type: string
+          format: uri
+          example: "https://keap.com"
+        isActive:
+          type: boolean
+          example: true
+        requiresOAuth:
+          type: boolean
+          example: true
+        supportedFeatures:
+          type: array
+          items:
+            type: string
+          example: ["contacts", "companies", "orders"]
+          
+    PlatformSource:
+      type: object
+      properties:
+        platformSourceId:
+          type: string
+          example: "keap-contacts"
+        platformId:
+          type: string
+          example: "keap"
+        name:
+          type: string
+          example: "Contacts"
+        description:
+          type: string
+          example: "Customer contact information and profiles"
+        dataType:
+          type: string
+          example: "contacts"
+        isActive:
+          type: boolean
+          example: true
+        defaultSettings:
+          type: object
+          additionalProperties: true
+        estimatedSize:
+          type: string
+          example: "~1MB per 1000 contacts"
+          
+    PlatformConnection:
+      type: object
+      properties:
+        connectionId:
+          type: string
+          example: "conn_123e4567"
+        platformId:
+          type: string
+          example: "keap"
+        accountId:
+          type: string
+          example: "account:123e4567-e89b-12d3-a456-426614174000"
+        name:
+          type: string
+          example: "Main Keap Account"
+        status:
+          type: string
+          enum: [active, inactive, error, pending]
+          example: "active"
+        isActive:
+          type: boolean
+          example: true
+        lastSyncAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        settings:
+          type: object
+          additionalProperties: true
+          
+    Source:
+      type: object
+      properties:
+        sourceId:
+          type: string
+          example: "src_123e4567"
+        accountId:
+          type: string
+          example: "account:123e4567-e89b-12d3-a456-426614174000"
+        connectionId:
+          type: string
+          example: "conn_123e4567"
+        platformSourceId:
+          type: string
+          example: "keap-contacts"
+        groupId:
+          type: string
+          example: "grp_123e4567"
+        name:
+          type: string
+          example: "Customer Contacts"
+        description:
+          type: string
+          example: "All customer contact data from Keap"
+        status:
+          type: string
+          enum: [active, inactive, error, syncing]
+          example: "active"
+        isActive:
+          type: boolean
+          example: true
+        lastSyncAt:
+          type: string
+          format: date-time
+        nextSyncAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        settings:
+          type: object
+          additionalProperties: true
+        syncSettings:
+          type: object
+          properties:
+            frequency:
+              type: string
+              enum: [manual, hourly, daily, weekly]
+              example: "daily"
+            autoSync:
+              type: boolean
+              example: true
+              
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "Validation failed"
+        message:
+          type: string
+          example: "The request body is invalid"
+        details:
+          type: object
+          additionalProperties: true
+        timestamp:
+          type: string
+          format: date-time
+
+paths:
+  # Authentication & User Management
+  /me:
+    get:
+      tags:
+        - User Management
+      summary: Get current user profile
+      description: Retrieve the profile information for the currently authenticated user, including account details and permissions.
+      responses:
+        '200':
+          description: User profile retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: User not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+                
+  # Platforms
+  /platforms:
+    get:
+      tags:
+        - Platforms
+      summary: List all available platforms
+      description: Retrieve a list of all available platforms that can be connected for data backup.
+      responses:
+        '200':
+          description: List of platforms
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  platforms:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Platform'
+                  total:
+                    type: integer
+                    example: 10
+                    
+  /platforms/{platformId}:
+    get:
+      tags:
+        - Platforms
+      summary: Get platform details
+      description: Retrieve detailed information about a specific platform.
+      parameters:
+        - name: platformId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "keap"
+      responses:
+        '200':
+          description: Platform details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Platform'
+        '404':
+          description: Platform not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+                
+  /platforms/{platformId}/sources:
+    get:
+      tags:
+        - Platform Sources
+      summary: List platform sources
+      description: Get all available data sources for a specific platform.
+      parameters:
+        - name: platformId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "keap"
+      responses:
+        '200':
+          description: List of platform sources
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  platformSources:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PlatformSource'
+                      
+  # Connections
+  /connections:
+    get:
+      tags:
+        - Platform Connections
+      summary: List user's platform connections
+      description: Retrieve all platform connections for the authenticated user.
+      responses:
+        '200':
+          description: List of connections
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  connections:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PlatformConnection'
+                      
+    post:
+      tags:
+        - Platform Connections
+      summary: Create new platform connection
+      description: Create a new connection to a platform using OAuth or API credentials.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - platformId
+                - name
+              properties:
+                platformId:
+                  type: string
+                  example: "keap"
+                name:
+                  type: string
+                  example: "Main Keap Account"
+                settings:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '201':
+          description: Connection created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformConnection'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+                
+  /connections/{connectionId}:
+    get:
+      tags:
+        - Platform Connections
+      summary: Get connection details
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "conn_123e4567"
+      responses:
+        '200':
+          description: Connection details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformConnection'
+                
+    put:
+      tags:
+        - Platform Connections
+      summary: Update connection
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "conn_123e4567"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  example: "Updated Connection Name"
+                settings:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '200':
+          description: Connection updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformConnection'
+                
+    delete:
+      tags:
+        - Platform Connections
+      summary: Delete connection
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "conn_123e4567"
+      responses:
+        '204':
+          description: Connection deleted successfully
+          
+  /connections/{connectionId}/test:
+    post:
+      tags:
+        - Platform Connections
+      summary: Test connection
+      description: Test the connection to verify it's working properly.
+      parameters:
+        - name: connectionId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "conn_123e4567"
+      responses:
+        '200':
+          description: Connection test successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+                  message:
+                    type: string
+                    example: "Connection is working properly"
+                  details:
+                    type: object
+                    additionalProperties: true
+                    
+  # Sources
+  /sources:
+    get:
+      tags:
+        - Sources
+      summary: List user's sources
+      description: Retrieve all data sources for the authenticated user.
+      responses:
+        '200':
+          description: List of sources
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sources:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Source'
+                      
+    post:
+      tags:
+        - Sources
+      summary: Create new source
+      description: Create a new data source from a platform connection.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - connectionId
+                - platformSourceId
+                - name
+              properties:
+                connectionId:
+                  type: string
+                  example: "conn_123e4567"
+                platformSourceId:
+                  type: string
+                  example: "keap-contacts"
+                groupId:
+                  type: string
+                  example: "grp_123e4567"
+                name:
+                  type: string
+                  example: "Customer Contacts"
+                description:
+                  type: string
+                  example: "All customer contact data"
+                settings:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '201':
+          description: Source created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Source'
+                
+  /sources/{sourceId}:
+    get:
+      tags:
+        - Sources
+      summary: Get source details
+      parameters:
+        - name: sourceId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "src_123e4567"
+      responses:
+        '200':
+          description: Source details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Source'
+                
+    put:
+      tags:
+        - Sources
+      summary: Update source
+      parameters:
+        - name: sourceId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "src_123e4567"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  example: "Updated Source Name"
+                description:
+                  type: string
+                  example: "Updated description"
+                settings:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '200':
+          description: Source updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Source'
+                
+    delete:
+      tags:
+        - Sources
+      summary: Delete source
+      parameters:
+        - name: sourceId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "src_123e4567"
+      responses:
+        '204':
+          description: Source deleted successfully
+          
+  /sources/{sourceId}/sync:
+    post:
+      tags:
+        - Sources
+      summary: Sync source data
+      description: Trigger a manual sync of data from the source platform.
+      parameters:
+        - name: sourceId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "src_123e4567"
+      responses:
+        '200':
+          description: Sync initiated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "sync_started"
+                  message:
+                    type: string
+                    example: "Data sync has been initiated"
+                  syncId:
+                    type: string
+                    example: "sync_123e4567"
+                    
+  /sources/{sourceId}/test:
+    post:
+      tags:
+        - Sources
+      summary: Test source
+      description: Test the source to verify it can access data properly.
+      parameters:
+        - name: sourceId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "src_123e4567"
+      responses:
+        '200':
+          description: Source test successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+                  message:
+                    type: string
+                    example: "Source is accessible and working properly"
+                  sampleData:
+                    type: object
+                    additionalProperties: true
+
+tags:
+  - name: User Management
+    description: User profile and account management
+  - name: Platforms
+    description: Available backup platforms and integrations
+  - name: Platform Sources
+    description: Data sources available for each platform
+  - name: Platform Connections
+    description: User connections to platforms
+  - name: Sources
+    description: Individual data sources and backup management

@@ -1,0 +1,246 @@
+service: listbackup-api-gateway
+
+frameworkVersion: '4'
+
+plugins:
+  - serverless-go-plugin
+  - serverless-domain-manager
+  - serverless-aws-documentation
+
+provider:
+  name: aws
+  runtime: provided.al2023
+  region: us-west-2
+  stage: ${opt:stage, 'main'}
+  environment:
+    STAGE: ${self:provider.stage}
+    COGNITO_USER_POOL_ID: ${cf:listbackup-core-${self:provider.stage}.CognitoUserPoolId}
+    COGNITO_CLIENT_ID: ${cf:listbackup-core-${self:provider.stage}.CognitoUserPoolClientId}
+    COGNITO_CLIENT_SECRET: ""  # No secret for public client
+    COGNITO_REGION: ${self:provider.region}
+    COGNITO_JWKS_URI: 
+      Fn::Sub: "https://cognito-idp.${AWS::Region}.amazonaws.com/${cf:listbackup-core-${self:provider.stage}.CognitoUserPoolId}/.well-known/jwks.json"
+    COGNITO_ISSUER: 
+      Fn::Sub: "https://cognito-idp.${AWS::Region}.amazonaws.com/${cf:listbackup-core-${self:provider.stage}.CognitoUserPoolId}"
+    DYNAMODB_TABLE_PREFIX: listbackup-${self:provider.stage}
+    API_VERSION: v1
+    API_REFERENCE: listbackup-api-gateway
+    # Custom domain environment variables
+    CUSTOM_DOMAIN_NAME: ${self:custom.customDomain.domainName}
+    API_BASE_URL: https://${self:custom.customDomain.domainName}
+  deploymentBucket:
+    blockPublicAccess: true
+  httpApi:
+    cors: true
+    authorizers:
+      cognitoAuthorizer:
+        type: jwt
+        identitySource:
+          - $request.header.Authorization
+        issuerUrl: 
+          Fn::Sub: "https://cognito-idp.${AWS::Region}.amazonaws.com/${cf:listbackup-core-${self:provider.stage}.CognitoUserPoolId}"
+        audience:
+          - ${cf:listbackup-core-${self:provider.stage}.CognitoUserPoolClientId}
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - apigateway:GET
+            - apigateway:POST
+          Resource:
+            - "arn:aws:apigateway:${self:provider.region}::/apis/*"
+        # Comprehensive DynamoDB permissions with wildcards
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:BatchGetItem
+            - dynamodb:BatchWriteItem
+            - dynamodb:ConditionCheckItem
+            - dynamodb:DescribeTable
+            - dynamodb:CreateTable
+            - dynamodb:ListTables
+            - dynamodb:DescribeTimeToLive
+            - dynamodb:UpdateTimeToLive
+            - dynamodb:TagResource
+            - dynamodb:UntagResource
+            - dynamodb:ListTagsOfResource
+            - dynamodb:DescribeStream
+            - dynamodb:GetRecords
+            - dynamodb:GetShardIterator
+            - dynamodb:ListStreams
+            - dynamodb:DescribeLimits
+            - dynamodb:DescribeBackup
+            - dynamodb:ListBackups
+          Resource:
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/index/*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/stream/*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/backup/*"
+        # Additional DynamoDB permissions for account-level operations
+        - Effect: Allow
+          Action:
+            - dynamodb:ListTables
+            - dynamodb:DescribeLimits
+          Resource: "*"
+        # SSM permissions for accessing domain certificate ARN
+        - Effect: Allow
+          Action:
+            - ssm:GetParameter
+            - ssm:GetParameters
+          Resource:
+            - "arn:aws:ssm:${self:provider.region}:*:parameter/${self:provider.stage}/domains/*"
+
+custom:
+  # Stage-specific domain mapping
+  domainMap:
+    main: api.listbackup.ai
+    production: api.listbackup.ai
+    dev: dev.api.listbackup.ai
+    staging: staging.api.listbackup.ai
+    test: test.api.listbackup.ai
+  
+  # Domain manager configuration
+  customDomain:
+    domainName: ${self:custom.domainMap.${self:provider.stage}, '${self:provider.stage}.api.listbackup.ai'}
+    basePath: ''  # No base path - API at root
+    stage: ${self:provider.stage}
+    certificateArn: ${ssm:/${self:provider.stage}/domains/api-certificate-arn}
+    createRoute53Record: true
+    createRoute53IPv6Record: false
+    endpointType: REGIONAL
+    securityPolicy: TLS_1_2
+    apiType: http  # HTTP API (not REST API)
+    autoDomain: true
+    preserveExternalPathMappings: false
+    # Route 53 configuration
+    hostedZoneId: Z01040453V93CTQT4QFNW  # listbackup.ai hosted zone
+    hostedZonePrivate: false
+
+  # Documentation configuration
+  documentation:
+    api:
+      info:
+        version: "1.0.0"
+        title: "ListBackup.ai API"
+        description: "ListBackup.ai v2 REST API Gateway"
+        contact:
+          name: "ListBackup.ai Support"
+          url: "https://listbackup.ai/support"
+      servers:
+        - url: https://${self:custom.customDomain.domainName}
+          description: "Production API Server"
+
+package:
+  individually: true
+
+functions:
+  # System health endpoint
+  health:
+    handler: bootstrap
+    description: Check the health status of the API and its dependencies
+    package:
+      patterns:
+        - '!./**'
+        - './bin/api/health/bootstrap'
+      artifact: bin/health.zip
+    events:
+      - httpApi:
+          path: /system/health
+          method: get
+    environment:
+      FUNCTION_NAME: health
+
+  # OpenAPI specification export endpoint
+  openapiExport:
+    handler: bootstrap
+    description: Export the OpenAPI specification for this API in YAML or JSON format
+    package:
+      patterns:
+        - '!./**'
+        - './bin/api/openapi-export/bootstrap'
+      artifact: bin/openapi-export.zip
+    events:
+      - httpApi:
+          path: /system/openapi
+          method: get
+      - httpApi:
+          path: /system/openapi
+          method: options
+
+resources:
+  Resources:
+    # Custom headers for CORS and security
+    HttpApiGatewayResponseDefault4XX:
+      Type: AWS::ApiGatewayV2::GatewayResponse
+      Properties:
+        GatewayId:
+          Ref: HttpApi
+        ResponseType: DEFAULT_4XX
+        ResponseHeaders:
+          Access-Control-Allow-Origin: "'*'"
+          Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Requested-With'"
+          Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+
+    HttpApiGatewayResponseDefault5XX:
+      Type: AWS::ApiGatewayV2::GatewayResponse
+      Properties:
+        GatewayId:
+          Ref: HttpApi
+        ResponseType: DEFAULT_5XX
+        ResponseHeaders:
+          Access-Control-Allow-Origin: "'*'"
+          Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Requested-With'"
+          Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+
+  Outputs:
+    HttpApiId:
+      Description: "HTTP API Gateway ID"
+      Value:
+        Ref: HttpApi
+      Export:
+        Name: ${self:service}-${self:provider.stage}-HttpApiId
+    
+    HttpApiEndpoint:
+      Description: "HTTP API Gateway Endpoint"
+      Value:
+        Fn::Join:
+          - ''
+          - - 'https://'
+            - Ref: HttpApi
+            - '.execute-api.'
+            - ${self:provider.region}
+            - '.amazonaws.com'
+      Export:
+        Name: ${self:service}-${self:provider.stage}-HttpApiEndpoint
+    
+    CustomDomainEndpoint:
+      Description: "Custom Domain Endpoint"
+      Value: https://${self:custom.customDomain.domainName}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-CustomDomainEndpoint
+    
+    CustomDomainName:
+      Description: "Custom Domain Name"
+      Value: ${self:custom.customDomain.domainName}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-CustomDomainName
+    
+    CognitoAuthorizerId:
+      Description: "Cognito JWT Authorizer ID"
+      Value:
+        Ref: HttpApiAuthorizerCognitoAuthorizer
+      Export:
+        Name: ${self:service}-${self:provider.stage}-CognitoAuthorizerId
+    
+    # Domain-related outputs
+    DomainCertificateArn:
+      Description: "SSL Certificate ARN used for custom domain"
+      Value: ${ssm:/${self:provider.stage}/domains/api-certificate-arn}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-DomainCertificateArn

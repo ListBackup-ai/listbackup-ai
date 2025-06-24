@@ -1,0 +1,177 @@
+service: listbackup-backup-processors
+
+frameworkVersion: '4'
+
+provider:
+  name: aws
+  runtime: python3.11
+  region: us-west-2
+  stage: ${opt:stage, 'main'}
+  environment:
+    STAGE: ${self:provider.stage}
+    DYNAMODB_TABLE_PREFIX: listbackup-${self:provider.stage}
+    S3_BUCKET: listbackup-data-${self:provider.stage}
+    API_VERSION: v2
+    JOB_QUEUE_URL: 
+      Fn::ImportValue: listbackup-core-${self:provider.stage}-JobQueue
+    DATA_QUEUE_URL: 
+      Fn::ImportValue: listbackup-core-${self:provider.stage}-DataQueue
+    EVENT_BUS_NAME: 
+      Fn::ImportValue: listbackup-core-${self:provider.stage}-EventBus
+    PYTHONPATH: /var/runtime:/var/task:/opt/python
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:BatchGetItem
+            - dynamodb:BatchWriteItem
+          Resource:
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.DYNAMODB_TABLE_PREFIX}-*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.DYNAMODB_TABLE_PREFIX}-*/index/*"
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:DeleteObject
+            - s3:ListBucket
+            - s3:GetObjectVersion
+            - s3:PutObjectAcl
+            - s3:GetBucketLocation
+          Resource:
+            - "arn:aws:s3:::${self:provider.environment.S3_BUCKET}"
+            - "arn:aws:s3:::${self:provider.environment.S3_BUCKET}/*"
+        - Effect: Allow
+          Action:
+            - sqs:ReceiveMessage
+            - sqs:DeleteMessage
+            - sqs:SendMessage
+            - sqs:GetQueueAttributes
+          Resource:
+            - "${self:provider.environment.JOB_QUEUE_URL}"
+            - "${self:provider.environment.DATA_QUEUE_URL}"
+        - Effect: Allow
+          Action:
+            - events:PutEvents
+          Resource:
+            - "arn:aws:events:${self:provider.region}:*:event-bus/${self:provider.environment.EVENT_BUS_NAME}"
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+          Resource:
+            - "arn:aws:secretsmanager:${self:provider.region}:*:secret:listbackup/api-keys/*"
+
+plugins:
+  - serverless-python-requirements
+
+custom:
+  pythonRequirements:
+    dockerizePip: true
+    layer:
+      name: ${self:service}-${self:provider.stage}-python-deps
+      description: Python dependencies for backup processors
+      compatibleRuntimes:
+        - python3.11
+      retain: false
+    pipCmdExtraArgs:
+      - --no-cache-dir
+
+package:
+  patterns:
+    - '!node_modules/**'
+    - '!.git/**'
+    - '!.pytest_cache/**'
+    - '!__pycache__/**'
+    - '!*.pyc'
+    - '!.env'
+    - '!README.md'
+
+functions:
+  # Main backup job orchestrator
+  backupOrchestrator:
+    handler: src/processors/backup_orchestrator.handler
+    events:
+      - sqs:
+          arn: "${self:provider.environment.JOB_QUEUE_URL}"
+          batchSize: 1
+          maximumBatchingWindowInSeconds: 5
+    timeout: 900
+    memorySize: 1024
+    reservedConcurrency: 3
+    environment:
+      JOBS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-jobs
+      RUNS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-runs
+      SOURCES_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-sources
+      FILES_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-files
+      ACTIVITY_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-activity
+  
+  # Google Drive backup processor
+  googleDriveBackup:
+    handler: src/processors/integrations/google_drive_backup.handler
+    timeout: 900
+    memorySize: 2048
+    reservedConcurrency: 2
+    environment:
+      SOURCES_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-sources
+      FILES_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-files
+      RUNS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-runs
+      ACTIVITY_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-activity
+      GOOGLE_DRIVE_CHUNK_SIZE: "10485760"  # 10MB chunks
+      MAX_FILE_SIZE: "5368709120"  # 5GB max file size
+  
+  # Dropbox backup processor
+  dropboxBackup:
+    handler: src/processors/integrations/dropbox_backup.handler
+    timeout: 900
+    memorySize: 2048
+    reservedConcurrency: 2
+    environment:
+      SOURCES_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-sources
+      FILES_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-files
+      RUNS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-runs
+      ACTIVITY_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-activity
+      DROPBOX_CHUNK_SIZE: "8388608"  # 8MB chunks
+  
+  # Slack backup processor
+  slackBackup:
+    handler: src/processors/integrations/slack_backup.handler
+    timeout: 900
+    memorySize: 1024
+    reservedConcurrency: 2
+    environment:
+      SOURCES_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-sources
+      FILES_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-files
+      RUNS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-runs
+      ACTIVITY_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-activity
+      SLACK_RATE_LIMIT_DELAY: "1.2"  # Slack API rate limiting
+  
+  # File processing and compression
+  fileProcessor:
+    handler: src/processors/file_processor.handler
+    events:
+      - sqs:
+          arn: "${self:provider.environment.DATA_QUEUE_URL}"
+          batchSize: 5
+          maximumBatchingWindowInSeconds: 10
+    timeout: 300
+    memorySize: 1024
+    reservedConcurrency: 5
+    environment:
+      FILES_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-files
+      ACTIVITY_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-activity
+      COMPRESSION_LEVEL: "6"  # Good balance between speed and compression
+      ENABLE_ENCRYPTION: "true"
+
+resources:
+  Resources:
+    BackupOrchestratorLogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        LogGroupName: /aws/lambda/${self:service}-${self:provider.stage}-backupOrchestrator
+        RetentionInDays: 14

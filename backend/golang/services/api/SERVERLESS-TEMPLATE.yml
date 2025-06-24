@@ -1,0 +1,233 @@
+# Standardized Serverless Framework Configuration Template for ListBackup.ai API Services
+# All API services should follow this template for consistency
+
+service: listbackup-{service-name}  # Replace with actual service name (e.g., listbackup-auth)
+
+frameworkVersion: '4'
+
+package:
+  individually: true
+
+provider:
+  name: aws
+  profile: listbackup.ai
+  runtime: provided.al2023
+  architecture: arm64  # Better price/performance ratio
+  region: us-west-2
+  stage: ${opt:stage, 'main'}
+  memorySize: 512
+  timeout: 29
+  tracing:
+    lambda: true
+    apiGateway: true
+  
+  # HTTP API Gateway reference from infrastructure
+  httpApi:
+    id: ${cf:listbackup-api-gateway-${self:provider.stage}.HttpApiId}
+  
+  # Environment variables - All services should have these at provider level
+  environment:
+    # Stage
+    STAGE: ${self:provider.stage}
+    
+    # Cognito configuration from infrastructure-cognito service
+    COGNITO_USER_POOL_ID: ${cf:listbackup-infrastructure-cognito-${self:provider.stage}.CognitoUserPoolId}
+    COGNITO_CLIENT_ID: ${cf:listbackup-infrastructure-cognito-${self:provider.stage}.CognitoUserPoolClientId}
+    COGNITO_CLIENT_SECRET: ""  # No secret for public client
+    COGNITO_REGION: ${self:provider.region}
+    COGNITO_JWKS_URI: ${cf:listbackup-infrastructure-cognito-${self:provider.stage}.CognitoJwksUri}
+    COGNITO_ISSUER: ${cf:listbackup-infrastructure-cognito-${self:provider.stage}.CognitoIssuer}
+    
+    # DynamoDB table names from infrastructure-dynamodb service
+    USERS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UsersTableName}
+    ACCOUNTS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.AccountsTableName}
+    USER_ACCOUNTS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UserAccountsTableName}
+    ACTIVITY_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.ActivityTableName}
+    SOURCES_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.SourcesTableName}
+    JOBS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.JobsTableName}
+    PLATFORMS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.PlatformsTableName}
+    PLATFORM_CONNECTIONS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.PlatformConnectionsTableName}
+    PLATFORM_SOURCES_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.PlatformSourcesTableName}
+    SOURCE_GROUPS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.SourceGroupsTableName}
+    JOB_LOGS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.JobLogsTableName}
+    TEAMS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.TeamsTableName}
+    TEAM_MEMBERS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.TeamMembersTableName}
+    NOTIFICATIONS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.NotificationsTableName}
+    BILLING_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.BillingTableName}
+    BILLING_USAGE_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.BillingUsageTableName}
+    TAGS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.TagsTableName}
+    
+    # EventBridge from infrastructure-eventbridge service
+    EVENT_BUS_NAME: ${cf:listbackup-infrastructure-eventbridge-${self:provider.stage}.EventBusName}
+    EVENT_BUS_ARN: ${cf:listbackup-infrastructure-eventbridge-${self:provider.stage}.EventBusArn}
+    
+    # S3 bucket from infrastructure-s3 service
+    DATA_BUCKET_NAME: ${cf:listbackup-infrastructure-s3-${self:provider.stage}.DataBucketName}
+    DATA_BUCKET_ARN: ${cf:listbackup-infrastructure-s3-${self:provider.stage}.DataBucketArn}
+    
+    # SQS queues from infrastructure-sqs service
+    SYNC_QUEUE_URL: ${cf:listbackup-infrastructure-sqs-${self:provider.stage}.SyncQueueUrl}
+    BACKUP_QUEUE_URL: ${cf:listbackup-infrastructure-sqs-${self:provider.stage}.BackupQueueUrl}
+    EXPORT_QUEUE_URL: ${cf:listbackup-infrastructure-sqs-${self:provider.stage}.ExportQueueUrl}
+    ANALYTICS_QUEUE_URL: ${cf:listbackup-infrastructure-sqs-${self:provider.stage}.AnalyticsQueueUrl}
+    MAINTENANCE_QUEUE_URL: ${cf:listbackup-infrastructure-sqs-${self:provider.stage}.MaintenanceQueueUrl}
+    ALERT_QUEUE_URL: ${cf:listbackup-infrastructure-sqs-${self:provider.stage}.AlertQueueUrl}
+    
+    # API configuration
+    API_VERSION: v1
+    API_REFERENCE: listbackup-api
+    
+    # Performance and monitoring
+    X_AMZN_TRACE_ID: enabled
+  
+  # IAM role statements - Flexible permissions for development
+  # NOTE: These should be restricted in production
+  iam:
+    role:
+      statements:
+        # Full DynamoDB permissions for all tables
+        - Effect: Allow
+          Action:
+            - dynamodb:*
+          Resource:
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UsersTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.AccountsTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UserAccountsTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.ActivityTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.SourcesTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.JobsTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.PlatformsTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.PlatformConnectionsTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.PlatformSourcesTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.SourceGroupsTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.JobLogsTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.TeamsTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.TeamMembersTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.NotificationsTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.BillingTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.BillingUsageTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.TagsTableArn}
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UsersTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.AccountsTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UserAccountsTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.ActivityTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.SourcesTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.JobsTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.PlatformsTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.PlatformConnectionsTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.PlatformSourcesTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.SourceGroupsTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.JobLogsTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.TeamsTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.TeamMembersTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.NotificationsTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.BillingTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.BillingUsageTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.TagsTableArn}/index/*"
+        
+        # Full Cognito permissions
+        - Effect: Allow
+          Action:
+            - cognito-idp:*
+          Resource:
+            - ${cf:listbackup-infrastructure-cognito-${self:provider.stage}.CognitoUserPoolArn}
+        
+        # EventBridge permissions
+        - Effect: Allow
+          Action:
+            - events:PutEvents
+            - events:PutTargets
+            - events:RemoveTargets
+          Resource:
+            - ${cf:listbackup-infrastructure-eventbridge-${self:provider.stage}.EventBusArn}
+            - ${cf:listbackup-infrastructure-eventbridge-${self:provider.stage}.DataSyncEventsRuleArn}
+            - ${cf:listbackup-infrastructure-eventbridge-${self:provider.stage}.JobEventsRuleArn}
+            - ${cf:listbackup-infrastructure-eventbridge-${self:provider.stage}.UserEventsRuleArn}
+            - ${cf:listbackup-infrastructure-eventbridge-${self:provider.stage}.BillingEventsRuleArn}
+            - ${cf:listbackup-infrastructure-eventbridge-${self:provider.stage}.PlatformEventsRuleArn}
+            - ${cf:listbackup-infrastructure-eventbridge-${self:provider.stage}.SystemEventsRuleArn}
+        
+        # S3 permissions
+        - Effect: Allow
+          Action:
+            - s3:*
+          Resource:
+            - ${cf:listbackup-infrastructure-s3-${self:provider.stage}.DataBucketArn}
+            - "${cf:listbackup-infrastructure-s3-${self:provider.stage}.DataBucketArn}/*"
+        
+        # SQS permissions
+        - Effect: Allow
+          Action:
+            - sqs:*
+          Resource:
+            - ${cf:listbackup-infrastructure-sqs-${self:provider.stage}.SyncQueueArn}
+            - ${cf:listbackup-infrastructure-sqs-${self:provider.stage}.BackupQueueArn}
+            - ${cf:listbackup-infrastructure-sqs-${self:provider.stage}.ExportQueueArn}
+            - ${cf:listbackup-infrastructure-sqs-${self:provider.stage}.AnalyticsQueueArn}
+            - ${cf:listbackup-infrastructure-sqs-${self:provider.stage}.MaintenanceQueueArn}
+            - ${cf:listbackup-infrastructure-sqs-${self:provider.stage}.AlertQueueArn}
+            - ${cf:listbackup-infrastructure-sqs-${self:provider.stage}.SyncDeadLetterQueueArn}
+            - ${cf:listbackup-infrastructure-sqs-${self:provider.stage}.BackupDeadLetterQueueArn}
+            - ${cf:listbackup-infrastructure-sqs-${self:provider.stage}.ExportDeadLetterQueueArn}
+            - ${cf:listbackup-infrastructure-sqs-${self:provider.stage}.AnalyticsDeadLetterQueueArn}
+            - ${cf:listbackup-infrastructure-sqs-${self:provider.stage}.MaintenanceDeadLetterQueueArn}
+            - ${cf:listbackup-infrastructure-sqs-${self:provider.stage}.AlertDeadLetterQueueArn}
+        
+        # CloudWatch Logs permissions
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - logs:DescribeLogGroups
+            - logs:DescribeLogStreams
+          Resource: "arn:aws:logs:${self:provider.region}:*:*"
+        
+        # X-Ray tracing permissions
+        - Effect: Allow
+          Action:
+            - xray:PutTraceSegments
+            - xray:PutTelemetryRecords
+          Resource: "*"
+        
+        # SSM Parameter Store permissions (for configuration)
+        - Effect: Allow
+          Action:
+            - ssm:GetParameter
+            - ssm:GetParameters
+            - ssm:GetParametersByPath
+          Resource: "arn:aws:ssm:${self:provider.region}:*:parameter/listbackup/*"
+        
+        # Secrets Manager permissions (for OAuth tokens and API keys)
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+            - secretsmanager:CreateSecret
+            - secretsmanager:UpdateSecret
+            - secretsmanager:DeleteSecret
+          Resource: "arn:aws:secretsmanager:${self:provider.region}:*:secret:listbackup/*"
+
+functions:
+  # Example function structure - DO NOT include environment variables at function level
+  exampleFunction:
+    handler: bootstrap
+    package:
+      artifact: bin/{service-name}/example.zip
+    description: "Function description"
+    memorySize: 256  # Override provider default if needed
+    timeout: 10       # Override provider default if needed
+    reservedConcurrency: 100  # Optional: set concurrency limits
+    events:
+      - httpApi:
+          path: /{service-path}/example
+          method: get
+          authorizer:
+            id: c0vpx0  # JWT authorizer ID from API Gateway
+      - httpApi:
+          path: /{service-path}/example
+          method: options  # Always include OPTIONS for CORS
+    # DO NOT add environment section here - use provider.environment
+
+# Custom section for any service-specific configuration
+custom:
+  # Add any custom variables or plugins configuration here

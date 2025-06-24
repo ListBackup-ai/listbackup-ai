@@ -1,0 +1,20 @@
+{
+  "name": "listbackup-api",
+  "version": "1.0.0",
+  "description": "ListBackup.ai Go API services",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "serverless-aws-documentation": "^1.1.0",
+    "serverless-domain-manager": "^8.0.0",
+    "serverless-go-plugin": "^2.4.1"
+  },
+  "dependencies": {
+    "serverless": "^4.17.1"
+  }
+}

@@ -1,0 +1,411 @@
+service: listbackup-infrastructure-sqs
+
+frameworkVersion: '4'
+
+provider:
+  name: aws
+  profile: listbackup.ai
+  runtime: provided.al2023
+  region: us-west-2
+  stage: ${opt:stage, 'main'}
+  deploymentBucket:
+    blockPublicAccess: true
+
+# No functions - this is infrastructure only
+functions: {}
+
+resources:
+  Description: "SQS queue infrastructure for ListBackup.ai - job processing and messaging"
+  
+  Resources:
+    # Job Type Specific FIFO Queues with Dead Letter Queues
+    
+    # High Priority - Real-time sync operations
+    SyncQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: listbackup-sync-queue-${self:provider.stage}.fifo
+        FifoQueue: true
+        ContentBasedDeduplication: true
+        VisibilityTimeout: 300  # 5 minutes
+        MessageRetentionPeriod: 1209600  # 14 days
+        ReceiveMessageWaitTimeSeconds: 20
+        RedrivePolicy:
+          deadLetterTargetArn: {"Fn::GetAtt": ["SyncDeadLetterQueue", "Arn"]}
+          maxReceiveCount: 3
+        Tags:
+          - Key: Service
+            Value: listbackup-infrastructure-sqs
+          - Key: Stage
+            Value: ${self:provider.stage}
+          - Key: Priority
+            Value: High
+          - Key: JobType
+            Value: Sync
+
+    SyncDeadLetterQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: listbackup-sync-dlq-${self:provider.stage}.fifo
+        FifoQueue: true
+        ContentBasedDeduplication: true
+        MessageRetentionPeriod: 1209600  # 14 days
+        Tags:
+          - Key: Service
+            Value: listbackup-infrastructure-sqs
+          - Key: Stage
+            Value: ${self:provider.stage}
+          - Key: QueueType
+            Value: DeadLetter
+          - Key: ParentQueue
+            Value: SyncQueue
+
+    # High Priority - Scheduled backups
+    BackupQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: listbackup-backup-queue-${self:provider.stage}.fifo
+        FifoQueue: true
+        ContentBasedDeduplication: true
+        VisibilityTimeout: 1800  # 30 minutes (longer for large backups)
+        MessageRetentionPeriod: 1209600  # 14 days
+        ReceiveMessageWaitTimeSeconds: 20
+        RedrivePolicy:
+          deadLetterTargetArn: {"Fn::GetAtt": ["BackupDeadLetterQueue", "Arn"]}
+          maxReceiveCount: 2  # Fewer retries for expensive operations
+        Tags:
+          - Key: Service
+            Value: listbackup-infrastructure-sqs
+          - Key: Stage
+            Value: ${self:provider.stage}
+          - Key: Priority
+            Value: High
+          - Key: JobType
+            Value: Backup
+
+    BackupDeadLetterQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: listbackup-backup-dlq-${self:provider.stage}.fifo
+        FifoQueue: true
+        ContentBasedDeduplication: true
+        MessageRetentionPeriod: 1209600  # 14 days
+        Tags:
+          - Key: Service
+            Value: listbackup-infrastructure-sqs
+          - Key: Stage
+            Value: ${self:provider.stage}
+          - Key: QueueType
+            Value: DeadLetter
+          - Key: ParentQueue
+            Value: BackupQueue
+
+    # Medium Priority - User exports
+    ExportQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: listbackup-export-queue-${self:provider.stage}.fifo
+        FifoQueue: true
+        ContentBasedDeduplication: true
+        VisibilityTimeout: 900  # 15 minutes
+        MessageRetentionPeriod: 1209600  # 14 days
+        ReceiveMessageWaitTimeSeconds: 20
+        RedrivePolicy:
+          deadLetterTargetArn: {"Fn::GetAtt": ["ExportDeadLetterQueue", "Arn"]}
+          maxReceiveCount: 3
+        Tags:
+          - Key: Service
+            Value: listbackup-infrastructure-sqs
+          - Key: Stage
+            Value: ${self:provider.stage}
+          - Key: Priority
+            Value: Medium
+          - Key: JobType
+            Value: Export
+
+    ExportDeadLetterQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: listbackup-export-dlq-${self:provider.stage}.fifo
+        FifoQueue: true
+        ContentBasedDeduplication: true
+        MessageRetentionPeriod: 1209600  # 14 days
+        Tags:
+          - Key: Service
+            Value: listbackup-infrastructure-sqs
+          - Key: Stage
+            Value: ${self:provider.stage}
+          - Key: QueueType
+            Value: DeadLetter
+          - Key: ParentQueue
+            Value: ExportQueue
+
+    # Low Priority - Analytics processing
+    AnalyticsQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: listbackup-analytics-queue-${self:provider.stage}.fifo
+        FifoQueue: true
+        ContentBasedDeduplication: true
+        VisibilityTimeout: 3600  # 1 hour (long processing)
+        MessageRetentionPeriod: 1209600  # 14 days
+        ReceiveMessageWaitTimeSeconds: 20
+        RedrivePolicy:
+          deadLetterTargetArn: {"Fn::GetAtt": ["AnalyticsDeadLetterQueue", "Arn"]}
+          maxReceiveCount: 2
+        Tags:
+          - Key: Service
+            Value: listbackup-infrastructure-sqs
+          - Key: Stage
+            Value: ${self:provider.stage}
+          - Key: Priority
+            Value: Low
+          - Key: JobType
+            Value: Analytics
+
+    AnalyticsDeadLetterQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: listbackup-analytics-dlq-${self:provider.stage}.fifo
+        FifoQueue: true
+        ContentBasedDeduplication: true
+        MessageRetentionPeriod: 1209600  # 14 days
+        Tags:
+          - Key: Service
+            Value: listbackup-infrastructure-sqs
+          - Key: Stage
+            Value: ${self:provider.stage}
+          - Key: QueueType
+            Value: DeadLetter
+          - Key: ParentQueue
+            Value: AnalyticsQueue
+
+    # Low Priority - Maintenance tasks
+    MaintenanceQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: listbackup-maintenance-queue-${self:provider.stage}.fifo
+        FifoQueue: true
+        ContentBasedDeduplication: true
+        VisibilityTimeout: 1800  # 30 minutes
+        MessageRetentionPeriod: 1209600  # 14 days
+        ReceiveMessageWaitTimeSeconds: 20
+        RedrivePolicy:
+          deadLetterTargetArn: {"Fn::GetAtt": ["MaintenanceDeadLetterQueue", "Arn"]}
+          maxReceiveCount: 1  # Single retry for maintenance
+        Tags:
+          - Key: Service
+            Value: listbackup-infrastructure-sqs
+          - Key: Stage
+            Value: ${self:provider.stage}
+          - Key: Priority
+            Value: Low
+          - Key: JobType
+            Value: Maintenance
+
+    MaintenanceDeadLetterQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: listbackup-maintenance-dlq-${self:provider.stage}.fifo
+        FifoQueue: true
+        ContentBasedDeduplication: true
+        MessageRetentionPeriod: 1209600  # 14 days
+        Tags:
+          - Key: Service
+            Value: listbackup-infrastructure-sqs
+          - Key: Stage
+            Value: ${self:provider.stage}
+          - Key: QueueType
+            Value: DeadLetter
+          - Key: ParentQueue
+            Value: MaintenanceQueue
+
+    # High Priority - Critical alerts
+    AlertQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: listbackup-alert-queue-${self:provider.stage}.fifo
+        FifoQueue: true
+        ContentBasedDeduplication: true
+        VisibilityTimeout: 60  # 1 minute (fast alerts)
+        MessageRetentionPeriod: 604800  # 7 days (shorter retention)
+        ReceiveMessageWaitTimeSeconds: 1  # Fast polling for alerts
+        RedrivePolicy:
+          deadLetterTargetArn: {"Fn::GetAtt": ["AlertDeadLetterQueue", "Arn"]}
+          maxReceiveCount: 5  # More retries for critical alerts
+        Tags:
+          - Key: Service
+            Value: listbackup-infrastructure-sqs
+          - Key: Stage
+            Value: ${self:provider.stage}
+          - Key: Priority
+            Value: Critical
+          - Key: JobType
+            Value: Alert
+
+    AlertDeadLetterQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: listbackup-alert-dlq-${self:provider.stage}.fifo
+        FifoQueue: true
+        ContentBasedDeduplication: true
+        MessageRetentionPeriod: 604800  # 7 days (shorter retention)
+        Tags:
+          - Key: Service
+            Value: listbackup-infrastructure-sqs
+          - Key: Stage
+            Value: ${self:provider.stage}
+          - Key: QueueType
+            Value: DeadLetter
+          - Key: ParentQueue
+            Value: AlertQueue
+
+  # CloudFormation Outputs - Export queue information for other services
+  Outputs:
+    # Main Queue URLs
+    SyncQueueUrl:
+      Description: Sync queue URL
+      Value: {"Ref": "SyncQueue"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-SyncQueueUrl
+
+    BackupQueueUrl:
+      Description: Backup queue URL
+      Value: {"Ref": "BackupQueue"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-BackupQueueUrl
+
+    ExportQueueUrl:
+      Description: Export queue URL
+      Value: {"Ref": "ExportQueue"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-ExportQueueUrl
+
+    AnalyticsQueueUrl:
+      Description: Analytics queue URL
+      Value: {"Ref": "AnalyticsQueue"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-AnalyticsQueueUrl
+
+    MaintenanceQueueUrl:
+      Description: Maintenance queue URL
+      Value: {"Ref": "MaintenanceQueue"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-MaintenanceQueueUrl
+
+    AlertQueueUrl:
+      Description: Alert queue URL
+      Value: {"Ref": "AlertQueue"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-AlertQueueUrl
+
+    # Main Queue ARNs
+    SyncQueueArn:
+      Description: Sync queue ARN
+      Value: {"Fn::GetAtt": ["SyncQueue", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-SyncQueueArn
+
+    BackupQueueArn:
+      Description: Backup queue ARN
+      Value: {"Fn::GetAtt": ["BackupQueue", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-BackupQueueArn
+
+    ExportQueueArn:
+      Description: Export queue ARN
+      Value: {"Fn::GetAtt": ["ExportQueue", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-ExportQueueArn
+
+    AnalyticsQueueArn:
+      Description: Analytics queue ARN
+      Value: {"Fn::GetAtt": ["AnalyticsQueue", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-AnalyticsQueueArn
+
+    MaintenanceQueueArn:
+      Description: Maintenance queue ARN
+      Value: {"Fn::GetAtt": ["MaintenanceQueue", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-MaintenanceQueueArn
+
+    AlertQueueArn:
+      Description: Alert queue ARN
+      Value: {"Fn::GetAtt": ["AlertQueue", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-AlertQueueArn
+
+    # Dead Letter Queue URLs
+    SyncDeadLetterQueueUrl:
+      Description: Sync dead letter queue URL
+      Value: {"Ref": "SyncDeadLetterQueue"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-SyncDeadLetterQueueUrl
+
+    BackupDeadLetterQueueUrl:
+      Description: Backup dead letter queue URL
+      Value: {"Ref": "BackupDeadLetterQueue"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-BackupDeadLetterQueueUrl
+
+    ExportDeadLetterQueueUrl:
+      Description: Export dead letter queue URL
+      Value: {"Ref": "ExportDeadLetterQueue"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-ExportDeadLetterQueueUrl
+
+    AnalyticsDeadLetterQueueUrl:
+      Description: Analytics dead letter queue URL
+      Value: {"Ref": "AnalyticsDeadLetterQueue"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-AnalyticsDeadLetterQueueUrl
+
+    MaintenanceDeadLetterQueueUrl:
+      Description: Maintenance dead letter queue URL
+      Value: {"Ref": "MaintenanceDeadLetterQueue"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-MaintenanceDeadLetterQueueUrl
+
+    AlertDeadLetterQueueUrl:
+      Description: Alert dead letter queue URL
+      Value: {"Ref": "AlertDeadLetterQueue"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-AlertDeadLetterQueueUrl
+
+    # Dead Letter Queue ARNs
+    SyncDeadLetterQueueArn:
+      Description: Sync dead letter queue ARN
+      Value: {"Fn::GetAtt": ["SyncDeadLetterQueue", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-SyncDeadLetterQueueArn
+
+    BackupDeadLetterQueueArn:
+      Description: Backup dead letter queue ARN
+      Value: {"Fn::GetAtt": ["BackupDeadLetterQueue", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-BackupDeadLetterQueueArn
+
+    ExportDeadLetterQueueArn:
+      Description: Export dead letter queue ARN
+      Value: {"Fn::GetAtt": ["ExportDeadLetterQueue", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-ExportDeadLetterQueueArn
+
+    AnalyticsDeadLetterQueueArn:
+      Description: Analytics dead letter queue ARN
+      Value: {"Fn::GetAtt": ["AnalyticsDeadLetterQueue", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-AnalyticsDeadLetterQueueArn
+
+    MaintenanceDeadLetterQueueArn:
+      Description: Maintenance dead letter queue ARN
+      Value: {"Fn::GetAtt": ["MaintenanceDeadLetterQueue", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-MaintenanceDeadLetterQueueArn
+
+    AlertDeadLetterQueueArn:
+      Description: Alert dead letter queue ARN
+      Value: {"Fn::GetAtt": ["AlertDeadLetterQueue", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-AlertDeadLetterQueueArn

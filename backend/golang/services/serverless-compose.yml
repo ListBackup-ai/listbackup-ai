@@ -1,0 +1,213 @@
+# Serverless Compose Configuration for ListBackup.ai Infrastructure Services
+# This file orchestrates the deployment of all infrastructure services in the correct order
+
+frameworkVersion: '4'
+
+services:
+  # Phase 1: Core Infrastructure Services
+  # These services have no dependencies and can be deployed in parallel
+  
+  # DynamoDB Tables - Foundation for all data storage
+  dynamodb-infrastructure:
+    path: ./infrastructure/dynamodb
+    
+  # SQS Queues - Foundation for job processing
+  sqs-infrastructure:
+    path: ./infrastructure/sqs
+
+  # S3 Bucket - Foundation for data storage
+  s3-infrastructure:
+    path: ./infrastructure/s3
+
+  # Phase 2: Dependent Infrastructure Services
+  # These services depend on Phase 1 resources being available
+  
+  # EventBridge - Depends on S3 bucket for logging
+  eventbridge-infrastructure:
+    path: ./infrastructure/eventbridge
+    dependsOn:
+      - s3-infrastructure  # Needs S3 bucket for logging
+
+  # Cognito - Using existing deployment at infrastructure/cognito
+  cognito-infrastructure:
+    path: ./infrastructure/cognito
+    dependsOn:
+      - s3-infrastructure      # References S3 bucket in IAM policies
+      - eventbridge-infrastructure  # References EventBridge for user events
+
+  # Domain Infrastructure - SSL certificates (needed by API Gateway)
+  domains-infrastructure:
+    path: ./infrastructure/domains
+
+  # Phase 3: API Gateway
+  # Central API Gateway that depends on Cognito for authentication
+  
+  # API Gateway - Depends on Cognito for JWT authorization
+  api-gateway:
+    path: ./api/gateway
+    dependsOn:
+      - cognito-infrastructure  # Uses Cognito for JWT authorization
+      - domains-infrastructure  # Uses SSL certificate for custom domain
+      
+  # Phase 4: API Services
+  # All API endpoint services that depend on API Gateway
+  
+  # Authentication Service
+  auth-service:
+    path: ./api/auth
+    dependsOn:
+      - api-gateway            # Needs API Gateway for HTTP endpoints
+      - cognito-infrastructure # Uses Cognito for authentication
+      - dynamodb-infrastructure # Uses DynamoDB tables
+      - eventbridge-infrastructure # Publishes auth events
+
+  # User Service
+  users-service:
+    path: ./api/users
+    dependsOn:
+      - api-gateway
+      - cognito-infrastructure
+      - dynamodb-infrastructure
+      - eventbridge-infrastructure
+      
+  # Account Service  
+  accounts-service:
+    path: ./api/accounts
+    dependsOn:
+      - api-gateway
+      - cognito-infrastructure
+      - dynamodb-infrastructure
+      - eventbridge-infrastructure
+      
+  # Teams Service
+  teams-service:
+    path: ./api/teams
+    dependsOn:
+      - api-gateway
+      - cognito-infrastructure 
+      - dynamodb-infrastructure
+      - eventbridge-infrastructure
+      
+  # Sources Service
+  sources-service:
+    path: ./api/sources
+    dependsOn:
+      - api-gateway
+      - cognito-infrastructure
+      - dynamodb-infrastructure
+      - eventbridge-infrastructure
+      - s3-infrastructure      # For data storage
+      - sqs-infrastructure     # For job processing
+      
+  # Jobs Service
+  jobs-service:
+    path: ./api/jobs
+    dependsOn:
+      - api-gateway
+      - cognito-infrastructure
+      - dynamodb-infrastructure
+      - eventbridge-infrastructure
+      - sqs-infrastructure     # For job queue management
+      
+  # Platforms Service
+  platforms-service:
+    path: ./api/platforms
+    dependsOn:
+      - api-gateway
+      - cognito-infrastructure
+      - dynamodb-infrastructure
+      - eventbridge-infrastructure
+      
+  # Integrations Service
+  integrations-service:
+    path: ./api/integrations
+    dependsOn:
+      - api-gateway
+      - cognito-infrastructure
+      - dynamodb-infrastructure
+      - eventbridge-infrastructure
+      - s3-infrastructure      # For OAuth token storage
+      
+  # Billing Service
+  billing-service:
+    path: ./api/billing
+    dependsOn:
+      - api-gateway
+      - cognito-infrastructure
+      - dynamodb-infrastructure
+      - eventbridge-infrastructure
+      
+  # Notifications Service
+  notifications-service:
+    path: ./api/notifications
+    dependsOn:
+      - api-gateway
+      - cognito-infrastructure
+      - dynamodb-infrastructure
+      - eventbridge-infrastructure
+      - sqs-infrastructure     # For notification queue
+      
+  # Dashboards Service
+  dashboards-service:
+    path: ./api/dashboards
+    dependsOn:
+      - api-gateway
+      - cognito-infrastructure
+      - dynamodb-infrastructure
+      - eventbridge-infrastructure
+      
+  # Domains Service (API endpoints for domain management)
+  domains-service:
+    path: ./api/domains
+    dependsOn:
+      - api-gateway
+      - cognito-infrastructure
+      - dynamodb-infrastructure
+      - eventbridge-infrastructure
+      
+  # Clients Service
+  clients-service:
+    path: ./api/clients
+    dependsOn:
+      - api-gateway
+      - cognito-infrastructure
+      - dynamodb-infrastructure
+      - eventbridge-infrastructure
+      
+  # Connections Service
+  connections-service:
+    path: ./api/connections
+    dependsOn:
+      - api-gateway
+      - cognito-infrastructure
+      - dynamodb-infrastructure
+      - eventbridge-infrastructure
+      
+  # Source Groups Service
+  source-groups-service:
+    path: ./api/source-groups
+    dependsOn:
+      - api-gateway
+      - cognito-infrastructure
+      - dynamodb-infrastructure
+      - eventbridge-infrastructure
+      
+  # Tags Service
+  tags-service:
+    path: ./api/tags
+    dependsOn:
+      - api-gateway
+      - cognito-infrastructure
+      - dynamodb-infrastructure
+      - eventbridge-infrastructure
+      
+  # System Service
+  system-service:
+    path: ./api/system
+    dependsOn:
+      - api-gateway
+      - cognito-infrastructure
+      - dynamodb-infrastructure
+      - eventbridge-infrastructure
+      - sqs-infrastructure     # For maintenance queue
+

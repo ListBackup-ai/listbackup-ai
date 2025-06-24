@@ -1,0 +1,236 @@
+# serverless.yml in infra/cognito
+
+service: listbackup-infrastructure-cognito
+
+provider:
+  name: aws
+  profile: listbackup.ai
+  region: us-west-2
+  stage: ${opt:stage, 'main'}
+
+# We are only defining resources, so no functions are needed.
+functions: {}
+
+resources:
+  Resources:
+    # 1. Cognito User Pool
+    CognitoUserPool:
+      Type: AWS::Cognito::UserPool
+      DependsOn: CognitoSmsRole
+      Properties:
+        UserPoolName: listbackup-user-pool-${self:provider.stage}
+        DeletionProtection: ACTIVE
+        UsernameAttributes:
+          - email
+        AutoVerifiedAttributes:
+          - email
+        Policies:
+          PasswordPolicy:
+            MinimumLength: 8
+            RequireLowercase: true
+            RequireNumbers: true
+            RequireSymbols: true
+            RequireUppercase: true
+        MfaConfiguration: "OPTIONAL" # Can be 'ON', 'OFF', or 'OPTIONAL'
+        EnabledMfas:
+          - "SMS_MFA"
+          - "SOFTWARE_TOKEN_MFA"
+        Schema:
+          - Name: name
+            AttributeDataType: String
+            Mutable: true
+            Required: true
+        AdminCreateUserConfig:
+          AllowAdminCreateUserOnly: false # Users can sign themselves up
+        SmsConfiguration:
+          SnsCallerArn: {"Fn::GetAtt": ["CognitoSmsRole", "Arn"]}
+          ExternalId: "listbackup-sms-mfa"
+
+    # Detach SMS configuration from the main user pool resource to avoid race conditions
+    # It will be attached separately after the pool and role are created.
+
+    # IAM Role for Cognito to send SMS messages
+    CognitoSmsRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: CognitoSmsRole-${self:provider.stage}
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - cognito-idp.amazonaws.com
+              Action:
+                - sts:AssumeRole
+        Policies:
+          - PolicyName: CognitoSmsPolicy
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action: sns:Publish
+                  Resource: "*" # You can scope this down further if needed
+
+    # 2. Cognito User Pool Client
+    # This is what our web and mobile apps will use to interact with the pool
+    CognitoUserPoolClient:
+      Type: AWS::Cognito::UserPoolClient
+      Properties:
+        ClientName: listbackup-app-client-${self:provider.stage}
+        UserPoolId: {"Ref": "CognitoUserPool"}
+        GenerateSecret: false # Public client, secret not needed for web/mobile apps
+        # Token Validity Settings
+        # Access and ID tokens can be 5 minutes to 24 hours
+        # Refresh tokens can be 60 minutes to 10 years
+        RefreshTokenValidity: 30 # Days (default: 30, max: 3650 = 10 years)
+        AccessTokenValidity: 24 # Hours (default: 1, min: 5 minutes, max: 24 hours)
+        IdTokenValidity: 24 # Hours (default: 1, min: 5 minutes, max: 24 hours)
+        TokenValidityUnits:
+          AccessToken: "hours"
+          IdToken: "hours"
+          RefreshToken: "days"
+        # IMPORTANT: These auth flows are required for the auth service to work
+        # If you update these, you may need to manually update the client in AWS Console
+        # or use: aws cognito-idp update-user-pool-client --explicit-auth-flows ...
+        ExplicitAuthFlows:
+          - ALLOW_USER_PASSWORD_AUTH
+          - ALLOW_REFRESH_TOKEN_AUTH
+          - ALLOW_USER_SRP_AUTH
+        SupportedIdentityProviders:
+          - COGNITO
+        AllowedOAuthFlowsUserPoolClient: true
+        AllowedOAuthFlows:
+          - code
+          - implicit
+        AllowedOAuthScopes:
+          - phone
+          - email
+          - openid
+          - profile
+          - aws.cognito.signin.user.admin
+        CallbackURLs:
+          - http://localhost:3000/callback # For local development
+          - https://main.listbackup.ai/callback # For the main deployed frontend
+        LogoutURLs:
+          - http://localhost:3000/login
+          - https://main.listbackup.ai/login
+
+    # 3. Cognito User Groups
+    # Internal Staff Roles
+    CognitoGroupSuperAdmins:
+      Type: AWS::Cognito::UserPoolGroup
+      Properties:
+        GroupName: SuperAdmins
+        Description: "For listbackup.ai owners/developers. Full system-wide administrative control."
+        UserPoolId: {"Ref": "CognitoUserPool"}
+        Precedence: 1
+
+    CognitoGroupAdmins:
+      Type: AWS::Cognito::UserPoolGroup
+      Properties:
+        GroupName: Admins
+        Description: "For regular listbackup.ai administrators. Can manage users and accounts, but cannot alter core system settings."
+        UserPoolId: {"Ref": "CognitoUserPool"}
+        Precedence: 2
+
+    CognitoGroupStaff:
+      Type: AWS::Cognito::UserPoolGroup
+      Properties:
+        GroupName: Staff
+        Description: "For general support personnel with read-only or limited operational access."
+        UserPoolId: {"Ref": "CognitoUserPool"}
+        Precedence: 3
+
+    # Customer Roles & Tiers
+    CognitoGroupCustomerAccountOwner:
+      Type: AWS::Cognito::UserPoolGroup
+      Properties:
+        GroupName: Customer-Account-Owner
+        Description: "Primary user for a customer account, with rights to manage billing and their own team members."
+        UserPoolId: {"Ref": "CognitoUserPool"}
+        Precedence: 10
+
+    CognitoGroupCustomerTier0:
+      Type: AWS::Cognito::UserPoolGroup
+      Properties:
+        GroupName: Customer-Tier-0
+        Description: "Users on the free or trial plan."
+        UserPoolId: {"Ref": "CognitoUserPool"}
+        Precedence: 20
+
+    CognitoGroupCustomerTier1:
+      Type: AWS::Cognito::UserPoolGroup
+      Properties:
+        GroupName: Customer-Tier-1
+        Description: "Users on the first paid plan."
+        UserPoolId: {"Ref": "CognitoUserPool"}
+        Precedence: 21
+
+    CognitoGroupCustomerTier2:
+      Type: AWS::Cognito::UserPoolGroup
+      Properties:
+        GroupName: Customer-Tier-2
+        Description: "Users on the second paid plan."
+        UserPoolId: {"Ref": "CognitoUserPool"}
+        Precedence: 22
+
+    CognitoGroupCustomerTier3:
+      Type: AWS::Cognito::UserPoolGroup
+      Properties:
+        GroupName: Customer-Tier-3
+        Description: "Users on the third paid plan."
+        UserPoolId: {"Ref": "CognitoUserPool"}
+        Precedence: 23
+
+    # 4. SSM Parameters to store the outputs for other services
+    UserPoolIdParameter:
+      Type: AWS::SSM::Parameter
+      Properties:
+        Name: /${self:service}/${self:provider.stage}/user-pool-id
+        Description: "ID of the Cognito User Pool"
+        Type: String
+        Value: {"Ref": "CognitoUserPool"}
+
+    UserPoolArnParameter:
+      Type: AWS::SSM::Parameter
+      Properties:
+        Name: /${self:service}/${self:provider.stage}/user-pool-arn
+        Description: "ARN of the Cognito User Pool"
+        Type: String
+        Value: {"Fn::GetAtt": ["CognitoUserPool", "Arn"]}
+
+    UserPoolClientIdParameter:
+      Type: AWS::SSM::Parameter
+      Properties:
+        Name: /${self:service}/${self:provider.stage}/user-pool-client-id
+        Description: "Client ID of the Cognito User Pool App Client"
+        Type: String
+        Value: {"Ref": "CognitoUserPoolClient"}
+
+  Outputs:
+    CognitoUserPoolId:
+      Description: "The ID of the Cognito User Pool"
+      Value: {"Ref": "CognitoUserPool"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-CognitoUserPoolId
+    CognitoUserPoolArn:
+      Description: "The ARN of the Cognito User Pool"
+      Value: {"Fn::GetAtt": ["CognitoUserPool", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-CognitoUserPoolArn
+    CognitoUserPoolClientId:
+      Description: "The ID of the Cognito User Pool Client"
+      Value: {"Ref": "CognitoUserPoolClient"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-CognitoUserPoolClientId
+    CognitoJwksUri:
+      Description: "Cognito JWKS URI for token validation"
+      Value: {"Fn::Sub": "https://cognito-idp.${AWS::Region}.amazonaws.com/${CognitoUserPool}/.well-known/jwks.json"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-CognitoJwksUri
+    CognitoIssuer:
+      Description: "Cognito issuer for token validation"
+      Value: {"Fn::Sub": "https://cognito-idp.${AWS::Region}.amazonaws.com/${CognitoUserPool}"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-CognitoIssuer 

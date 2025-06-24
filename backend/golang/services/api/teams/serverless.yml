@@ -1,0 +1,264 @@
+service: listbackup-teams
+
+provider:
+  name: aws
+  runtime: provided.al2023
+  stage: ${opt:stage, 'main'}
+  region: ${opt:region, 'us-west-2'}
+  architecture: arm64
+  memorySize: 512
+  timeout: 30
+  tracing:
+    lambda: true
+  httpApi:
+    id: ${cf:listbackup-api-gateway-${self:provider.stage}.HttpApiId}
+  environment:
+    STAGE: ${self:provider.stage}
+    DYNAMODB_TABLE_PREFIX: listbackup-${self:provider.stage}
+    COGNITO_USER_POOL_ID: ${cf:listbackup-core-${self:provider.stage}.CognitoUserPoolId}
+    COGNITO_CLIENT_ID: ${cf:listbackup-core-${self:provider.stage}.CognitoUserPoolClientId}
+    COGNITO_CLIENT_SECRET: ""  # No secret for public client
+    COGNITO_REGION: ${self:provider.region}
+    COGNITO_JWKS_URI: 
+      Fn::Sub: "https://cognito-idp.${AWS::Region}.amazonaws.com/${cf:listbackup-core-${self:provider.stage}.CognitoUserPoolId}/.well-known/jwks.json"
+    COGNITO_ISSUER: 
+      Fn::Sub: "https://cognito-idp.${AWS::Region}.amazonaws.com/${cf:listbackup-core-${self:provider.stage}.CognitoUserPoolId}"
+    TEAMS_TABLE: ${self:custom.teamsTable}
+    TEAM_MEMBERS_TABLE: ${self:custom.teamMembersTable}
+    TEAM_ACCOUNTS_TABLE: ${self:custom.teamAccountsTable}
+    TEAM_INVITATIONS_TABLE: ${self:custom.teamInvitationsTable}
+    API_VERSION: v1
+    API_REFERENCE: listbackup-api
+  iam:
+    role:
+      statements:
+        # Comprehensive DynamoDB permissions with wildcards
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:BatchGetItem
+            - dynamodb:BatchWriteItem
+            - dynamodb:ConditionCheckItem
+            - dynamodb:DescribeTable
+            - dynamodb:CreateTable
+            - dynamodb:ListTables
+            - dynamodb:DescribeTimeToLive
+            - dynamodb:UpdateTimeToLive
+            - dynamodb:TagResource
+            - dynamodb:UntagResource
+            - dynamodb:ListTagsOfResource
+            - dynamodb:DescribeStream
+            - dynamodb:GetRecords
+            - dynamodb:GetShardIterator
+            - dynamodb:ListStreams
+            - dynamodb:DescribeLimits
+            - dynamodb:DescribeBackup
+            - dynamodb:ListBackups
+          Resource:
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/index/*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/stream/*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/backup/*"
+        # Additional DynamoDB permissions for account-level operations
+        - Effect: Allow
+          Action:
+            - dynamodb:ListTables
+            - dynamodb:DescribeLimits
+          Resource: "*"
+
+plugins:
+  - serverless-go-plugin
+
+package:
+  patterns:
+    - '!./**'
+    - 'cmd/handlers/teams/create/bootstrap'
+    - 'cmd/handlers/teams/get/bootstrap'
+    - 'cmd/handlers/teams/list/bootstrap'
+
+custom:
+  go:
+    baseDir: .
+    buildProvidedRuntimeAsBootstrap: true
+    cmd: CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w"
+  teamsTable: listbackup-${self:provider.stage}-teams
+  teamMembersTable: listbackup-${self:provider.stage}-team-members
+  teamAccountsTable: listbackup-${self:provider.stage}-team-accounts
+  teamInvitationsTable: listbackup-${self:provider.stage}-team-invitations
+
+functions:
+  # Basic team CRUD operations
+  teams-create:
+    handler: cmd/handlers/teams/create/main.go
+    description: Create a new team
+    events:
+      - httpApi:
+          path: /teams
+          method: post
+          authorizer:
+            id: c0vpx0
+
+    environment:
+      TEAMS_TABLE: ${self:custom.teamsTable}
+      TEAM_MEMBERS_TABLE: ${self:custom.teamMembersTable}
+
+  teams-get:
+    handler: cmd/handlers/teams/get/main.go
+    description: Get a team by ID
+    events:
+      - httpApi:
+          path: /teams/{teamId}
+          method: get
+          authorizer:
+            id: c0vpx0
+
+    environment:
+      TEAMS_TABLE: ${self:custom.teamsTable}
+
+  teams-list:
+    handler: cmd/handlers/teams/list/main.go
+    description: List teams for user
+    events:
+      - httpApi:
+          path: /teams
+          method: get
+          authorizer:
+            id: c0vpx0
+
+    environment:
+      TEAMS_TABLE: ${self:custom.teamsTable}
+      TEAM_MEMBERS_TABLE: ${self:custom.teamMembersTable}
+
+resources:
+  Resources:
+    # Teams table
+    TeamsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.teamsTable}
+        AttributeDefinitions:
+          - AttributeName: teamId
+            AttributeType: S
+          - AttributeName: ownerId
+            AttributeType: S
+          - AttributeName: createdAt
+            AttributeType: N
+        KeySchema:
+          - AttributeName: teamId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: OwnerIndex
+            KeySchema:
+              - AttributeName: ownerId
+                KeyType: HASH
+              - AttributeName: createdAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        BillingMode: PAY_PER_REQUEST
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        SSESpecification:
+          SSEEnabled: true
+
+    # Team members table (many-to-many users-teams)
+    TeamMembersTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.teamMembersTable}
+        AttributeDefinitions:
+          - AttributeName: teamId
+            AttributeType: S
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: joinedAt
+            AttributeType: N
+        KeySchema:
+          - AttributeName: teamId
+            KeyType: HASH
+          - AttributeName: userId
+            KeyType: RANGE
+        GlobalSecondaryIndexes:
+          - IndexName: UserTeamsIndex
+            KeySchema:
+              - AttributeName: userId
+                KeyType: HASH
+              - AttributeName: joinedAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        BillingMode: PAY_PER_REQUEST
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        SSESpecification:
+          SSEEnabled: true
+
+    # Team accounts table (many-to-many teams-accounts)
+    TeamAccountsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.teamAccountsTable}
+        AttributeDefinitions:
+          - AttributeName: teamId
+            AttributeType: S
+          - AttributeName: accountId
+            AttributeType: S
+          - AttributeName: grantedAt
+            AttributeType: N
+        KeySchema:
+          - AttributeName: teamId
+            KeyType: HASH
+          - AttributeName: accountId
+            KeyType: RANGE
+        GlobalSecondaryIndexes:
+          - IndexName: AccountTeamsIndex
+            KeySchema:
+              - AttributeName: accountId
+                KeyType: HASH
+              - AttributeName: grantedAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        BillingMode: PAY_PER_REQUEST
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        SSESpecification:
+          SSEEnabled: true
+
+    # Team invitations table
+    TeamInvitationsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.teamInvitationsTable}
+        AttributeDefinitions:
+          - AttributeName: inviteCode
+            AttributeType: S
+          - AttributeName: teamId
+            AttributeType: S
+          - AttributeName: expiresAt
+            AttributeType: N
+        KeySchema:
+          - AttributeName: inviteCode
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: TeamInvitationsIndex
+            KeySchema:
+              - AttributeName: teamId
+                KeyType: HASH
+              - AttributeName: expiresAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        BillingMode: PAY_PER_REQUEST
+        TimeToLiveSpecification:
+          AttributeName: expiresAt
+          Enabled: true
+        SSESpecification:
+          SSEEnabled: true

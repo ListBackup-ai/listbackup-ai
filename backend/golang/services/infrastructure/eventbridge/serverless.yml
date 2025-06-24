@@ -1,0 +1,254 @@
+service: listbackup-infrastructure-eventbridge
+
+frameworkVersion: '4'
+
+provider:
+  name: aws
+  profile: listbackup.ai
+  runtime: provided.al2023
+  region: us-west-2
+  stage: ${opt:stage, 'main'}
+  deploymentBucket:
+    blockPublicAccess: true
+
+# No functions - this is infrastructure only
+functions: {}
+
+resources:
+  Description: "EventBridge infrastructure for ListBackup.ai - event-driven service communication"
+  
+  Resources:
+    # Custom Event Bus for inter-service communication
+    EventBus:
+      Type: AWS::Events::EventBus
+      Properties:
+        Name: listbackup-events-${self:provider.stage}
+        Description: "Custom event bus for ListBackup.ai service communication"
+        Tags:
+          - Key: Service
+            Value: listbackup-infrastructure-eventbridge
+          - Key: Stage
+            Value: ${self:provider.stage}
+          - Key: Purpose
+            Value: Inter-service communication
+
+    # Event Rules for common patterns
+    
+    # Data Sync Events Rule
+    DataSyncEventsRule:
+      Type: AWS::Events::Rule
+      Properties:
+        Name: listbackup-data-sync-events-${self:provider.stage}
+        Description: "Route data sync events to appropriate handlers"
+        EventBusName: {"Ref": "EventBus"}
+        EventPattern:
+          source: ["listbackup.sources"]
+          detail-type: ["Data Sync Started", "Data Sync Completed", "Data Sync Failed"]
+        State: ENABLED
+
+    # Job Events Rule
+    JobEventsRule:
+      Type: AWS::Events::Rule
+      Properties:
+        Name: listbackup-job-events-${self:provider.stage}
+        Description: "Route job lifecycle events to monitoring and notification services"
+        EventBusName: {"Ref": "EventBus"}
+        EventPattern:
+          source: ["listbackup.jobs"]
+          detail-type: ["Job Started", "Job Completed", "Job Failed", "Job Queued"]
+        State: ENABLED
+
+    # User Events Rule
+    UserEventsRule:
+      Type: AWS::Events::Rule
+      Properties:
+        Name: listbackup-user-events-${self:provider.stage}
+        Description: "Route user activity events for analytics and notifications"
+        EventBusName: {"Ref": "EventBus"}
+        EventPattern:
+          source: ["listbackup.users", "listbackup.auth"]
+          detail-type: ["User Registered", "User Login", "User Logout", "Password Reset"]
+        State: ENABLED
+
+    # Billing Events Rule
+    BillingEventsRule:
+      Type: AWS::Events::Rule
+      Properties:
+        Name: listbackup-billing-events-${self:provider.stage}
+        Description: "Route billing and usage events for processing"
+        EventBusName: {"Ref": "EventBus"}
+        EventPattern:
+          source: ["listbackup.billing"]
+          detail-type: ["Usage Recorded", "Billing Calculated", "Payment Processed", "Invoice Generated"]
+        State: ENABLED
+
+    # Platform Integration Events Rule
+    PlatformEventsRule:
+      Type: AWS::Events::Rule
+      Properties:
+        Name: listbackup-platform-events-${self:provider.stage}
+        Description: "Route platform integration events for monitoring"
+        EventBusName: {"Ref": "EventBus"}
+        EventPattern:
+          source: ["listbackup.platforms", "listbackup.integrations"]
+          detail-type: ["OAuth Connected", "OAuth Failed", "Platform Error", "Connection Test"]
+        State: ENABLED
+
+    # System Events Rule
+    SystemEventsRule:
+      Type: AWS::Events::Rule
+      Properties:
+        Name: listbackup-system-events-${self:provider.stage}
+        Description: "Route system-level events for monitoring and alerting"
+        EventBusName: {"Ref": "EventBus"}
+        EventPattern:
+          source: ["listbackup.system"]
+          detail-type: ["Service Started", "Service Error", "Health Check", "Maintenance"]
+        State: ENABLED
+
+    # CloudWatch Log Group for EventBridge logging
+    EventBridgeLogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        LogGroupName: {"Fn::Sub": "/aws/events/${AWS::StackName}"}
+        RetentionInDays: 30
+        Tags:
+          - Key: Service
+            Value: listbackup-infrastructure-eventbridge
+          - Key: Stage
+            Value: ${self:provider.stage}
+
+    # IAM Role for EventBridge to write to CloudWatch Logs
+    EventBridgeLogRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: {"Fn::Sub": "listbackup-eventbridge-log-role-${self:provider.stage}"}
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: events.amazonaws.com
+              Action: sts:AssumeRole
+        Policies:
+          - PolicyName: EventBridgeLogPolicy
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - logs:CreateLogGroup
+                    - logs:CreateLogStream
+                    - logs:PutLogEvents
+                    - logs:DescribeLogGroups
+                    - logs:DescribeLogStreams
+                  Resource: {"Fn::Sub": "${EventBridgeLogGroup.Arn}*"}
+        Tags:
+          - Key: Service
+            Value: listbackup-infrastructure-eventbridge
+          - Key: Environment
+            Value: ${self:provider.stage}
+
+  # CloudFormation Outputs - Export EventBridge information for other services
+  Outputs:
+    EventBusName:
+      Description: Custom event bus name
+      Value: {"Ref": "EventBus"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-EventBusName
+
+    EventBusArn:
+      Description: Custom event bus ARN
+      Value: {"Fn::GetAtt": ["EventBus", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-EventBusArn
+
+    DataSyncEventsRuleName:
+      Description: Data sync events rule name
+      Value: {"Ref": "DataSyncEventsRule"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-DataSyncEventsRuleName
+
+    DataSyncEventsRuleArn:
+      Description: Data sync events rule ARN
+      Value: {"Fn::GetAtt": ["DataSyncEventsRule", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-DataSyncEventsRuleArn
+
+    JobEventsRuleName:
+      Description: Job events rule name
+      Value: {"Ref": "JobEventsRule"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-JobEventsRuleName
+
+    JobEventsRuleArn:
+      Description: Job events rule ARN
+      Value: {"Fn::GetAtt": ["JobEventsRule", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-JobEventsRuleArn
+
+    UserEventsRuleName:
+      Description: User events rule name
+      Value: {"Ref": "UserEventsRule"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-UserEventsRuleName
+
+    UserEventsRuleArn:
+      Description: User events rule ARN
+      Value: {"Fn::GetAtt": ["UserEventsRule", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-UserEventsRuleArn
+
+    BillingEventsRuleName:
+      Description: Billing events rule name
+      Value: {"Ref": "BillingEventsRule"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-BillingEventsRuleName
+
+    BillingEventsRuleArn:
+      Description: Billing events rule ARN
+      Value: {"Fn::GetAtt": ["BillingEventsRule", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-BillingEventsRuleArn
+
+    PlatformEventsRuleName:
+      Description: Platform events rule name
+      Value: {"Ref": "PlatformEventsRule"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-PlatformEventsRuleName
+
+    PlatformEventsRuleArn:
+      Description: Platform events rule ARN
+      Value: {"Fn::GetAtt": ["PlatformEventsRule", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-PlatformEventsRuleArn
+
+    SystemEventsRuleName:
+      Description: System events rule name
+      Value: {"Ref": "SystemEventsRule"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-SystemEventsRuleName
+
+    SystemEventsRuleArn:
+      Description: System events rule ARN
+      Value: {"Fn::GetAtt": ["SystemEventsRule", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-SystemEventsRuleArn
+
+    EventBridgeLogGroupName:
+      Description: EventBridge log group name
+      Value: {"Ref": "EventBridgeLogGroup"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-EventBridgeLogGroupName
+
+    EventBridgeLogGroupArn:
+      Description: EventBridge log group ARN
+      Value: {"Fn::GetAtt": ["EventBridgeLogGroup", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-EventBridgeLogGroupArn
+
+    EventBridgeLogRoleArn:
+      Description: EventBridge log role ARN
+      Value: {"Fn::GetAtt": ["EventBridgeLogRole", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-EventBridgeLogRoleArn

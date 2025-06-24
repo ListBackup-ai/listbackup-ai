@@ -1,0 +1,197 @@
+service: listbackup-platforms
+
+frameworkVersion: '4'
+
+provider:
+  name: aws
+  profile: listbackup.ai
+  runtime: provided.al2023
+  architecture: arm64  # Better price/performance ratio
+  region: us-west-2
+  stage: ${opt:stage, 'main'}
+  memorySize: 512
+  timeout: 29
+  tracing:
+    lambda: true
+  httpApi:
+    id: ${cf:listbackup-api-gateway-${self:provider.stage}.HttpApiId}
+  environment:
+    STAGE: ${self:provider.stage}
+    # Cognito configuration from infrastructure-cognito service
+    COGNITO_USER_POOL_ID: ${cf:listbackup-infrastructure-cognito-${self:provider.stage}.CognitoUserPoolId}
+    COGNITO_CLIENT_ID: ${cf:listbackup-infrastructure-cognito-${self:provider.stage}.CognitoUserPoolClientId}
+    COGNITO_CLIENT_SECRET: ""  # No secret for public client
+    COGNITO_REGION: ${self:provider.region}
+    COGNITO_JWKS_URI: ${cf:listbackup-infrastructure-cognito-${self:provider.stage}.CognitoJwksUri}
+    COGNITO_ISSUER: ${cf:listbackup-infrastructure-cognito-${self:provider.stage}.CognitoIssuer}
+    # DynamoDB table names from infrastructure-dynamodb service
+    PLATFORMS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.PlatformsTableName}
+    PLATFORM_SOURCES_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.PlatformSourcesTableName}
+    PLATFORM_CONNECTIONS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.PlatformConnectionsTableName}
+    USERS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UsersTableName}
+    # EventBridge from infrastructure-eventbridge service
+    EVENT_BUS_NAME: ${cf:listbackup-infrastructure-eventbridge-${self:provider.stage}.EventBusName}
+    # API configuration
+    API_VERSION: v1
+    API_REFERENCE: listbackup-api
+    DYNAMODB_TABLE_PREFIX: listbackup-${self:provider.stage}
+  iam:
+    role:
+      statements:
+        # Comprehensive DynamoDB permissions with wildcards
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:BatchGetItem
+            - dynamodb:BatchWriteItem
+            - dynamodb:ConditionCheckItem
+            - dynamodb:DescribeTable
+            - dynamodb:CreateTable
+            - dynamodb:ListTables
+            - dynamodb:DescribeTimeToLive
+            - dynamodb:UpdateTimeToLive
+            - dynamodb:TagResource
+            - dynamodb:UntagResource
+            - dynamodb:ListTagsOfResource
+            - dynamodb:DescribeStream
+            - dynamodb:GetRecords
+            - dynamodb:GetShardIterator
+            - dynamodb:ListStreams
+            - dynamodb:DescribeLimits
+            - dynamodb:DescribeBackup
+            - dynamodb:ListBackups
+          Resource:
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/index/*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/stream/*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/backup/*"
+        # Additional DynamoDB permissions for account-level operations
+        - Effect: Allow
+          Action:
+            - dynamodb:ListTables
+            - dynamodb:DescribeLimits
+          Resource: "*"
+
+package:
+  individually: true
+
+functions:
+  # Platform endpoints (moved from API gateway service)
+  platformsList:
+    handler: bootstrap
+    description: List available platforms
+    package:
+      patterns:
+        - '!./**'
+        - './bin/platforms/list/bootstrap'
+      artifact: './dist/platforms-list.zip'
+    events:
+      - httpApi:
+          path: /platforms
+          method: get
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: platforms-list
+      PLATFORMS_TABLE: ${self:provider.environment.PLATFORMS_TABLE}
+
+  platformsGet:
+    handler: bootstrap
+    description: Get platform details
+    package:
+      patterns:
+        - '!./**'
+        - './bin/platforms/get/bootstrap'
+      artifact: './dist/platforms-get.zip'
+    events:
+      - httpApi:
+          path: /platforms/{id}
+          method: get
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: platforms-get
+      PLATFORMS_TABLE: ${self:provider.environment.PLATFORMS_TABLE}
+
+  # Platform sources endpoints
+  listPlatformSources:
+    handler: bootstrap
+    description: Get all available data sources for a specific platform
+    package:
+      patterns:
+        - '!./**'
+        - './bin/api/platform-sources-list/bootstrap'
+      artifact: './dist/platforms-platform-sources-list.zip'
+    events:
+      - httpApi:
+          path: /platforms/{platformId}/sources
+          method: GET
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: platform-sources-list
+      PLATFORMS_TABLE: ${self:provider.environment.PLATFORMS_TABLE}
+      PLATFORM_SOURCES_TABLE: ${self:provider.environment.PLATFORM_SOURCES_TABLE}
+
+  getPlatformSource:
+    handler: bootstrap
+    description: Get detailed information about a specific platform data source
+    package:
+      patterns:
+        - '!./**'
+        - './bin/api/platform-sources-get/bootstrap'
+      artifact: './dist/platforms-platform-sources-get.zip'
+    events:
+      - httpApi:
+          path: /platforms/{platformId}/sources/{platformSourceId}
+          method: GET
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: platform-sources-get
+      PLATFORMS_TABLE: ${self:provider.environment.PLATFORMS_TABLE}
+      PLATFORM_SOURCES_TABLE: ${self:provider.environment.PLATFORM_SOURCES_TABLE}
+
+  # Platform connections endpoints  
+  listPlatformConnections:
+    handler: bootstrap
+    description: List all connections for a specific platform
+    package:
+      patterns:
+        - '!./**'
+        - './bin/api/platform-connections-list/bootstrap'
+      artifact: './dist/platforms-platform-connections-list.zip'
+    events:
+      - httpApi:
+          path: /platforms/{platformId}/connections
+          method: GET
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: platform-connections-list
+      PLATFORMS_TABLE: ${self:provider.environment.PLATFORMS_TABLE}
+      PLATFORM_CONNECTIONS_TABLE: ${self:provider.environment.PLATFORM_CONNECTIONS_TABLE}
+
+  createPlatformConnection:
+    handler: bootstrap
+    description: Create a new connection to a platform using OAuth or API credentials
+    package:
+      patterns:
+        - '!./**'
+        - './bin/api/platform-connections-create/bootstrap'
+      artifact: './dist/platforms-platform-connections-create.zip'
+    events:
+      - httpApi:
+          path: /platforms/{platformId}/connections
+          method: POST
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: platform-connections-create
+      PLATFORMS_TABLE: ${self:provider.environment.PLATFORMS_TABLE}
+      PLATFORM_CONNECTIONS_TABLE: ${self:provider.environment.PLATFORM_CONNECTIONS_TABLE}

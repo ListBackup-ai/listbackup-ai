@@ -1,0 +1,355 @@
+service: listbackup-dashboards
+frameworkVersion: "4"
+
+plugins:
+  - serverless-go-plugin
+
+provider:
+  name: aws
+  profile: listbackup.ai
+  region: us-west-2
+  stage: ${opt:stage, 'main'}
+  runtime: provided.al2
+  architecture: arm64
+  
+  environment:
+    DASHBOARDS_TABLE: listbackup-${self:provider.stage}-dashboards
+    DASHBOARD_WIDGETS_TABLE: listbackup-${self:provider.stage}-dashboard-widgets
+    AWS_REGION: ${self:provider.region}
+    STAGE: ${self:provider.stage}
+  
+  httpApi:
+    id: !ImportValue ${self:provider.stage}-HttpApiId
+    
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:BatchGetItem
+            - dynamodb:BatchWriteItem
+          Resource:
+            - arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-dashboards
+            - arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-dashboards/index/*
+            - arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-dashboard-widgets
+            - arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-dashboard-widgets/index/*
+
+functions:
+  # Dashboard Management
+  dashboards-create:
+    handler: cmd/handlers/dashboards/create/main.go
+    events:
+      - httpApi:
+          path: /dashboards
+          method: post
+          authorizer:
+            name: CognitoJWTAuthorizer
+            type: jwt
+            identitySource: $request.header.Authorization
+            issuerUrl: {n::sub: \}
+            audience:
+              - {"Ref": "CognitoUserPoolClient"}
+      - httpApi:
+          path: /dashboards
+          method: options
+
+  dashboards-list:
+    handler: cmd/handlers/dashboards/list/main.go
+    events:
+      - httpApi:
+          path: /dashboards
+          method: get
+          authorizer:
+            name: CognitoJWTAuthorizer
+            type: jwt
+            identitySource: $request.header.Authorization
+            issuerUrl: {n::sub: \}
+            audience:
+              - {"Ref": "CognitoUserPoolClient"}
+      - httpApi:
+          path: /dashboards
+          method: options
+
+  dashboards-get:
+    handler: cmd/handlers/dashboards/get/main.go
+    events:
+      - httpApi:
+          path: /dashboards/{dashboardId}
+          method: get
+          authorizer:
+            name: CognitoJWTAuthorizer
+            type: jwt
+            identitySource: $request.header.Authorization
+            issuerUrl: {n::sub: \}
+            audience:
+              - {"Ref": "CognitoUserPoolClient"}
+      - httpApi:
+          path: /dashboards/{dashboardId}
+          method: options
+
+  dashboards-update:
+    handler: cmd/handlers/dashboards/update/main.go
+    events:
+      - httpApi:
+          path: /dashboards/{dashboardId}
+          method: put
+          authorizer:
+            name: CognitoJWTAuthorizer
+            type: jwt
+            identitySource: $request.header.Authorization
+            issuerUrl: {n::sub: \}
+            audience:
+              - {"Ref": "CognitoUserPoolClient"}
+      - httpApi:
+          path: /dashboards/{dashboardId}
+          method: options
+
+  dashboards-delete:
+    handler: cmd/handlers/dashboards/delete/main.go
+    events:
+      - httpApi:
+          path: /dashboards/{dashboardId}
+          method: delete
+          authorizer:
+            name: CognitoJWTAuthorizer
+            type: jwt
+            identitySource: $request.header.Authorization
+            issuerUrl: {n::sub: \}
+            audience:
+              - {"Ref": "CognitoUserPoolClient"}
+      - httpApi:
+          path: /dashboards/{dashboardId}
+          method: options
+
+  # Dashboard Layouts
+  dashboards-layouts:
+    handler: cmd/handlers/dashboards/layouts/main.go
+    events:
+      - httpApi:
+          path: /dashboards/{dashboardId}/layout
+          method: get
+          authorizer:
+            name: CognitoJWTAuthorizer
+            type: jwt
+            identitySource: $request.header.Authorization
+            issuerUrl: {n::sub: \}
+            audience:
+              - {"Ref": "CognitoUserPoolClient"}
+      - httpApi:
+          path: /dashboards/{dashboardId}/layout
+          method: put
+          authorizer:
+            name: CognitoJWTAuthorizer
+            type: jwt
+            identitySource: $request.header.Authorization
+            issuerUrl: {n::sub: \}
+            audience:
+              - {"Ref": "CognitoUserPoolClient"}
+      - httpApi:
+          path: /dashboards/{dashboardId}/layout
+          method: options
+
+  # Dashboard Widgets
+  dashboards-widgets:
+    handler: cmd/handlers/dashboards/widgets/main.go
+    events:
+      # Get widget data
+      - httpApi:
+          path: /dashboards/widgets/data
+          method: post
+          authorizer:
+            name: CognitoJWTAuthorizer
+            type: jwt
+            identitySource: $request.header.Authorization
+            issuerUrl: {n::sub: \}
+            audience:
+              - {"Ref": "CognitoUserPoolClient"}
+      # Add widget
+      - httpApi:
+          path: /dashboards/widgets
+          method: post
+          authorizer:
+            name: CognitoJWTAuthorizer
+            type: jwt
+            identitySource: $request.header.Authorization
+            issuerUrl: {n::sub: \}
+            audience:
+              - {"Ref": "CognitoUserPoolClient"}
+      # Update widget
+      - httpApi:
+          path: /dashboards/widgets
+          method: put
+          authorizer:
+            name: CognitoJWTAuthorizer
+            type: jwt
+            identitySource: $request.header.Authorization
+            issuerUrl: {n::sub: \}
+            audience:
+              - {"Ref": "CognitoUserPoolClient"}
+      # Remove widget
+      - httpApi:
+          path: /dashboards/widgets
+          method: delete
+          authorizer:
+            name: CognitoJWTAuthorizer
+            type: jwt
+            identitySource: $request.header.Authorization
+            issuerUrl: {n::sub: \}
+            audience:
+              - {"Ref": "CognitoUserPoolClient"}
+      - httpApi:
+          path: /dashboards/widgets
+          method: options
+      - httpApi:
+          path: /dashboards/widgets/data
+          method: options
+
+resources:
+  Resources:
+    # Dashboards Table
+    DashboardsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: listbackup-${self:provider.stage}-dashboards
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: dashboardId
+            AttributeType: S
+          - AttributeName: accountId
+            AttributeType: S
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: isDefault
+            AttributeType: S
+          - AttributeName: createdAt
+            AttributeType: S
+          - AttributeName: updatedAt
+            AttributeType: S
+        KeySchema:
+          - AttributeName: dashboardId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          # For listing dashboards by account
+          - IndexName: AccountDashboardsIndex
+            KeySchema:
+              - AttributeName: accountId
+                KeyType: HASH
+              - AttributeName: createdAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          # For user dashboards
+          - IndexName: AccountUserIndex
+            KeySchema:
+              - AttributeName: accountId
+                KeyType: HASH
+              - AttributeName: userId
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          # For default dashboards
+          - IndexName: AccountDefaultIndex
+            KeySchema:
+              - AttributeName: accountId
+                KeyType: HASH
+              - AttributeName: isDefault
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          # For recently updated dashboards
+          - IndexName: AccountUpdatedIndex
+            KeySchema:
+              - AttributeName: accountId
+                KeyType: HASH
+              - AttributeName: updatedAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Service
+            Value: listbackup-dashboards
+
+    # Dashboard Widgets Table (for widget templates and shared widgets)
+    DashboardWidgetsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: listbackup-${self:provider.stage}-dashboard-widgets
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: widgetId
+            AttributeType: S
+          - AttributeName: accountId
+            AttributeType: S
+          - AttributeName: type
+            AttributeType: S
+          - AttributeName: category
+            AttributeType: S
+          - AttributeName: createdAt
+            AttributeType: S
+        KeySchema:
+          - AttributeName: widgetId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          # For listing widgets by account
+          - IndexName: AccountWidgetsIndex
+            KeySchema:
+              - AttributeName: accountId
+                KeyType: HASH
+              - AttributeName: createdAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          # For widgets by type
+          - IndexName: AccountTypeIndex
+            KeySchema:
+              - AttributeName: accountId
+                KeyType: HASH
+              - AttributeName: type
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          # For widgets by category
+          - IndexName: AccountCategoryIndex
+            KeySchema:
+              - AttributeName: accountId
+                KeyType: HASH
+              - AttributeName: category
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Service
+            Value: listbackup-dashboard-widgets
+
+  Outputs:
+    DashboardsServiceName:
+      Description: "Dashboards service name"
+      Value: ${self:service}
+      Export:
+        Name: ${self:provider.stage}-DashboardsServiceName
+    
+    DashboardsTableName:
+      Description: "Dashboards DynamoDB table name"
+      Value: {"Ref": "DashboardsTable"}
+      Export:
+        Name: ${self:provider.stage}-DashboardsTableName
+    
+    DashboardWidgetsTableName:
+      Description: "Dashboard Widgets DynamoDB table name"
+      Value: {"Ref": "DashboardWidgetsTable"}
+      Export:
+        Name: ${self:provider.stage}-DashboardWidgetsTableName

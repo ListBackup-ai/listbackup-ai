@@ -1,0 +1,480 @@
+service: listbackup-clients
+
+provider:
+  name: aws
+  profile: listbackup.ai
+  runtime: provided.al2023
+  stage: ${opt:stage, 'main'}
+  region: us-west-2
+  architecture: arm64
+  memorySize: 512
+  timeout: 30
+  tracing:
+    lambda: true
+  deploymentMethod: direct
+  environment:
+    STAGE: ${self:provider.stage}
+    DYNAMODB_TABLE_PREFIX: listbackup-${self:provider.stage}
+    COGNITO_USER_POOL_ID: ${cf:listbackup-core-${self:provider.stage}.CognitoUserPoolId}
+    COGNITO_CLIENT_ID: ${cf:listbackup-core-${self:provider.stage}.CognitoUserPoolClientId}
+    COGNITO_CLIENT_SECRET: ""  # No secret for public client
+    COGNITO_REGION: ${self:provider.region}
+    COGNITO_JWKS_URI: 
+      Fn::Sub: "https://cognito-idp.${AWS::Region}.amazonaws.com/${cf:listbackup-core-${self:provider.stage}.CognitoUserPoolId}/.well-known/jwks.json"
+    COGNITO_ISSUER: 
+      Fn::Sub: "https://cognito-idp.${AWS::Region}.amazonaws.com/${cf:listbackup-core-${self:provider.stage}.CognitoUserPoolId}"
+    CLIENTS_TABLE: ${self:custom.clientsTable}
+    CLIENT_ACCOUNTS_TABLE: ${self:custom.clientAccountsTable}
+    CLIENT_TEAMS_TABLE: ${self:custom.clientTeamsTable}
+    CLIENT_INVITATIONS_TABLE: ${self:custom.clientInvitationsTable}
+    CLIENT_PERMISSIONS_TABLE: ${self:custom.clientPermissionsTable}
+    API_VERSION: v1
+    API_REFERENCE: listbackup-api
+  iam:
+    role:
+      statements:
+        # Comprehensive DynamoDB permissions with wildcards
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:BatchGetItem
+            - dynamodb:BatchWriteItem
+            - dynamodb:ConditionCheckItem
+            - dynamodb:DescribeTable
+            - dynamodb:CreateTable
+            - dynamodb:ListTables
+            - dynamodb:DescribeTimeToLive
+            - dynamodb:UpdateTimeToLive
+            - dynamodb:TagResource
+            - dynamodb:UntagResource
+            - dynamodb:ListTagsOfResource
+            - dynamodb:DescribeStream
+            - dynamodb:GetRecords
+            - dynamodb:GetShardIterator
+            - dynamodb:ListStreams
+            - dynamodb:DescribeLimits
+            - dynamodb:DescribeBackup
+            - dynamodb:ListBackups
+          Resource:
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/index/*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/stream/*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/backup/*"
+        # Additional DynamoDB permissions for account-level operations
+        - Effect: Allow
+          Action:
+            - dynamodb:ListTables
+            - dynamodb:DescribeLimits
+          Resource: "*"
+  httpApi:
+    id: ${cf:listbackup-api-gateway-${self:provider.stage}.HttpApiId}
+
+plugins:
+  - serverless-go-plugin
+
+custom:
+  go:
+    baseDir: .
+    buildProvidedRuntimeAsBootstrap: true
+    cmd: CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w"
+  clientsTable: listbackup-${self:provider.stage}-clients
+  clientAccountsTable: listbackup-${self:provider.stage}-client-accounts
+  clientTeamsTable: listbackup-${self:provider.stage}-client-teams
+  clientInvitationsTable: listbackup-${self:provider.stage}-client-invitations
+  clientPermissionsTable: listbackup-${self:provider.stage}-client-permissions
+
+functions:
+  # Client CRUD operations
+  clients-create:
+    handler: cmd/handlers/clients/create/main.go
+    description: Create a new client
+    events:
+      - httpApi:
+          path: /clients
+          method: post
+          authorizer:
+            id: c0vpx0
+    environment:
+      CLIENTS_TABLE: ${self:custom.clientsTable}
+
+  clients-get:
+    handler: cmd/handlers/clients/get/main.go
+    description: Get a client by ID
+    events:
+      - httpApi:
+          path: /clients/{clientId}
+          method: get
+          authorizer:
+            id: c0vpx0
+    environment:
+      CLIENTS_TABLE: ${self:custom.clientsTable}
+
+  clients-list:
+    handler: cmd/handlers/clients/list/main.go
+    description: List clients for user
+    events:
+      - httpApi:
+          path: /clients
+          method: get
+          authorizer:
+            id: c0vpx0
+    environment:
+      CLIENTS_TABLE: ${self:custom.clientsTable}
+
+  clients-update:
+    handler: cmd/handlers/clients/update/main.go
+    description: Update a client
+    events:
+      - httpApi:
+          path: /clients/{clientId}
+          method: put
+          authorizer:
+            id: c0vpx0
+    environment:
+      CLIENTS_TABLE: ${self:custom.clientsTable}
+
+  clients-delete:
+    handler: cmd/handlers/clients/delete/main.go
+    description: Delete a client
+    events:
+      - httpApi:
+          path: /clients/{clientId}
+          method: delete
+          authorizer:
+            id: c0vpx0
+    environment:
+      CLIENTS_TABLE: ${self:custom.clientsTable}
+
+  # Client authentication (special limited auth for clients)
+  clients-login:
+    handler: bin/clients/login/bootstrap
+    events:
+      - httpApi:
+          path: /clients/auth/login
+          method: post
+
+  clients-refresh:
+    handler: bin/clients/refresh/bootstrap
+    events:
+      - httpApi:
+          path: /clients/auth/refresh
+          method: post
+
+  # Client account access management
+  clients-grant-account-access:
+    handler: bin/clients/grant-account-access/bootstrap
+    events:
+      - httpApi:
+          path: /clients/{clientId}/accounts
+          method: post
+          authorizer:
+            id: c0vpx0
+
+  clients-revoke-account-access:
+    handler: bin/clients/revoke-account-access/bootstrap
+    events:
+      - httpApi:
+          path: /clients/{clientId}/accounts/{accountId}
+          method: delete
+          authorizer:
+            id: c0vpx0
+
+  clients-update-account-permissions:
+    handler: bin/clients/update-account-permissions/bootstrap
+    events:
+      - httpApi:
+          path: /clients/{clientId}/accounts/{accountId}/permissions
+          method: put
+          authorizer:
+            id: c0vpx0
+
+  clients-list-accounts:
+    handler: bin/clients/list-accounts/bootstrap
+    events:
+      - httpApi:
+          path: /clients/{clientId}/accounts
+          method: get
+          authorizer:
+            id: c0vpx0
+
+  # Client team access management
+  clients-grant-team-access:
+    handler: bin/clients/grant-team-access/bootstrap
+    events:
+      - httpApi:
+          path: /clients/{clientId}/teams
+          method: post
+          authorizer:
+            id: c0vpx0
+
+  clients-revoke-team-access:
+    handler: bin/clients/revoke-team-access/bootstrap
+    events:
+      - httpApi:
+          path: /clients/{clientId}/teams/{teamId}
+          method: delete
+          authorizer:
+            id: c0vpx0
+
+  clients-list-teams:
+    handler: bin/clients/list-teams/bootstrap
+    events:
+      - httpApi:
+          path: /clients/{clientId}/teams
+          method: get
+          authorizer:
+            id: c0vpx0
+
+  # Client permissions management
+  clients-set-permissions:
+    handler: bin/clients/set-permissions/bootstrap
+    events:
+      - httpApi:
+          path: /clients/{clientId}/permissions
+          method: put
+          authorizer:
+            id: c0vpx0
+
+  clients-get-permissions:
+    handler: bin/clients/get-permissions/bootstrap
+    events:
+      - httpApi:
+          path: /clients/{clientId}/permissions
+          method: get
+          authorizer:
+            id: c0vpx0
+
+  # Client invitations
+  clients-invite:
+    handler: bin/clients/invite/bootstrap
+    events:
+      - httpApi:
+          path: /clients/invitations
+          method: post
+          authorizer:
+            id: c0vpx0
+
+  clients-accept-invitation:
+    handler: bin/clients/accept-invitation/bootstrap
+    events:
+      - httpApi:
+          path: /clients/invitations/{inviteCode}/accept
+          method: post
+
+  clients-cancel-invitation:
+    handler: bin/clients/cancel-invitation/bootstrap
+    events:
+      - httpApi:
+          path: /clients/invitations/{inviteCode}
+          method: delete
+          authorizer:
+            id: c0vpx0
+
+  clients-list-invitations:
+    handler: bin/clients/list-invitations/bootstrap
+    events:
+      - httpApi:
+          path: /clients/invitations
+          method: get
+          authorizer:
+            id: c0vpx0
+
+  # Client portal endpoints (for clients to access their data)
+  client-portal-profile:
+    handler: bin/clients/portal/profile/bootstrap
+    events:
+      - httpApi:
+          path: /client-portal/profile
+          method: get
+          authorizer:
+            id: c0vpx0
+
+  client-portal-accounts:
+    handler: bin/clients/portal/accounts/bootstrap
+    events:
+      - httpApi:
+          path: /client-portal/accounts
+          method: get
+          authorizer:
+            id: c0vpx0
+
+  client-portal-reports:
+    handler: bin/clients/portal/reports/bootstrap
+    events:
+      - httpApi:
+          path: /client-portal/reports
+          method: get
+          authorizer:
+            id: c0vpx0
+
+  client-portal-exports:
+    handler: bin/clients/portal/exports/bootstrap
+    events:
+      - httpApi:
+          path: /client-portal/exports
+          method: get
+          authorizer:
+            id: c0vpx0
+
+resources:
+  Resources:
+    # Clients table
+    ClientsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.clientsTable}
+        AttributeDefinitions:
+          - AttributeName: clientId
+            AttributeType: S
+          - AttributeName: email
+            AttributeType: S
+          - AttributeName: createdAt
+            AttributeType: N
+          - AttributeName: createdBy
+            AttributeType: S
+        KeySchema:
+          - AttributeName: clientId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: EmailIndex
+            KeySchema:
+              - AttributeName: email
+                KeyType: HASH
+            Projection:
+              Type: ALL
+          - IndexName: CreatedByIndex
+            KeySchema:
+              - AttributeName: createdBy
+                KeyType: HASH
+              - AttributeName: createdAt
+                KeyType: RANGE
+            Projection:
+              Type: ALL
+        BillingMode: PAY_PER_REQUEST
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        SSESpecification:
+          SSEEnabled: true
+
+    # Client accounts table (many-to-many clients-accounts)
+    ClientAccountsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.clientAccountsTable}
+        AttributeDefinitions:
+          - AttributeName: clientId
+            AttributeType: S
+          - AttributeName: accountId
+            AttributeType: S
+          - AttributeName: grantedAt
+            AttributeType: N
+        KeySchema:
+          - AttributeName: clientId
+            KeyType: HASH
+          - AttributeName: accountId
+            KeyType: RANGE
+        GlobalSecondaryIndexes:
+          - IndexName: AccountClientsIndex
+            KeySchema:
+              - AttributeName: accountId
+                KeyType: HASH
+              - AttributeName: grantedAt
+                KeyType: RANGE
+            Projection:
+              Type: ALL
+        BillingMode: PAY_PER_REQUEST
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        SSESpecification:
+          SSEEnabled: true
+
+    # Client teams table (many-to-many clients-teams)
+    ClientTeamsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.clientTeamsTable}
+        AttributeDefinitions:
+          - AttributeName: clientId
+            AttributeType: S
+          - AttributeName: teamId
+            AttributeType: S
+          - AttributeName: grantedAt
+            AttributeType: N
+        KeySchema:
+          - AttributeName: clientId
+            KeyType: HASH
+          - AttributeName: teamId
+            KeyType: RANGE
+        GlobalSecondaryIndexes:
+          - IndexName: TeamClientsIndex
+            KeySchema:
+              - AttributeName: teamId
+                KeyType: HASH
+              - AttributeName: grantedAt
+                KeyType: RANGE
+            Projection:
+              Type: ALL
+        BillingMode: PAY_PER_REQUEST
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        SSESpecification:
+          SSEEnabled: true
+
+    # Client permissions table
+    ClientPermissionsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.clientPermissionsTable}
+        AttributeDefinitions:
+          - AttributeName: clientId
+            AttributeType: S
+          - AttributeName: resource
+            AttributeType: S
+        KeySchema:
+          - AttributeName: clientId
+            KeyType: HASH
+          - AttributeName: resource
+            KeyType: RANGE
+        BillingMode: PAY_PER_REQUEST
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        SSESpecification:
+          SSEEnabled: true
+
+    # Client invitations table
+    ClientInvitationsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.clientInvitationsTable}
+        AttributeDefinitions:
+          - AttributeName: inviteCode
+            AttributeType: S
+          - AttributeName: email
+            AttributeType: S
+          - AttributeName: expiresAt
+            AttributeType: N
+        KeySchema:
+          - AttributeName: inviteCode
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: EmailInvitationsIndex
+            KeySchema:
+              - AttributeName: email
+                KeyType: HASH
+              - AttributeName: expiresAt
+                KeyType: RANGE
+            Projection:
+              Type: ALL
+        BillingMode: PAY_PER_REQUEST
+        TimeToLiveSpecification:
+          AttributeName: expiresAt
+          Enabled: true
+        SSESpecification:
+          SSEEnabled: true

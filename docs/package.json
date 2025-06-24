@@ -1,0 +1,12 @@
+{
+  "name": "listbackup-api-docs",
+  "version": "1.0.0",
+  "description": "ListBackup.ai API Documentation",
+  "scripts": {
+    "serve": "npx http-server . -p 8080 -c-1",
+    "dev": "npx http-server . -p 8080 -c-1 -o"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}

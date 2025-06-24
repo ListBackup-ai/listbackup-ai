@@ -1,0 +1,825 @@
+service: listbackup-notifications
+
+provider:
+  name: aws
+  profile: listbackup.ai
+  runtime: provided.al2
+  region: us-west-2
+  stage: ${opt:stage, 'main'}
+  timeout: 30
+  memorySize: 512
+  logRetentionInDays: 14
+  environment:
+    STAGE: ${self:provider.stage}
+    AWS_REGION: ${self:provider.region}
+    NOTIFICATIONS_TABLE: {"Ref": "NotificationsTable"}
+    NOTIFICATION_PREFERENCES_TABLE: {"Ref": "NotificationPreferencesTable"}
+    NOTIFICATION_TEMPLATES_TABLE: {"Ref": "NotificationTemplatesTable"}
+    EMAIL_TEMPLATES_TABLE: {"Ref": "EmailTemplatesTable"}
+    EMAIL_VERIFICATIONS_TABLE: {"Ref": "EmailVerificationsTable"}
+    SMS_TEMPLATES_TABLE: {"Ref": "SMSTemplatesTable"}
+    PHONE_VERIFICATIONS_TABLE: {"Ref": "PhoneVerificationsTable"}
+    TWOFA_METHODS_TABLE: {"Ref": "TwoFAMethodsTable"}
+    DEFAULT_FROM_EMAIL: noreply@listbackup.ai
+    BASE_URL: ${self:custom.baseUrl.${self:provider.stage}}
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:BatchGetItem
+            - dynamodb:BatchWriteItem
+          Resource:
+            - {"Fn::GetAtt": ["NotificationsTable", "Arn"]}
+            - {"Fn::GetAtt": ["NotificationPreferencesTable", "Arn"]}
+            - {"Fn::GetAtt": ["NotificationTemplatesTable", "Arn"]}
+            - {"Fn::GetAtt": ["EmailTemplatesTable", "Arn"]}
+            - {"Fn::GetAtt": ["EmailVerificationsTable", "Arn"]}
+            - {"Fn::GetAtt": ["SMSTemplatesTable", "Arn"]}
+            - {"Fn::GetAtt": ["PhoneVerificationsTable", "Arn"]}
+            - {"Fn::GetAtt": ["TwoFAMethodsTable", "Arn"]}
+            - {"Fn::Sub": "${NotificationsTable}/index/*"}
+            - {"Fn::Sub": "${NotificationPreferencesTable}/index/*"}
+            - {"Fn::Sub": "${NotificationTemplatesTable}/index/*"}
+            - {"Fn::Sub": "${EmailTemplatesTable}/index/*"}
+            - {"Fn::Sub": "${EmailVerificationsTable}/index/*"}
+            - {"Fn::Sub": "${SMSTemplatesTable}/index/*"}
+            - {"Fn::Sub": "${PhoneVerificationsTable}/index/*"}
+            - {"Fn::Sub": "${TwoFAMethodsTable}/index/*"}
+        - Effect: Allow
+          Action:
+            - ses:SendEmail
+            - ses:SendRawEmail
+            - ses:GetSendQuota
+            - ses:GetSendStatistics
+          Resource: "*"
+        - Effect: Allow
+          Action:
+            - sns:Publish
+            - sns:GetSMSAttributes
+            - sns:SetSMSAttributes
+          Resource: "*"
+        - Effect: Allow
+          Action:
+            - ssm:GetParameter
+            - ssm:GetParameters
+            - ssm:GetParametersByPath
+          Resource:
+            - {"Fn::Sub": "arn:aws:ssm:${self:provider.region}:*:parameter/${self:provider.stage}/notifications/*"}
+        - Effect: Allow
+          Action:
+            - kms:Decrypt
+            - kms:DescribeKey
+          Resource:
+            - {"Fn::Sub": "arn:aws:kms:${self:provider.region}:*:key/*"}
+
+custom:
+  baseUrl:
+    main: https://listbackup.ai
+    staging: https://staging.listbackup.ai
+    development: https://dev.listbackup.ai
+  tableThroughput:
+    main:
+      read: 5
+      write: 5
+    staging:
+      read: 3
+      write: 3
+    development:
+      read: 1
+      write: 1
+
+package:
+  patterns:
+    - '!**'
+    - './bin/**'
+
+functions:
+  # Notification Management
+  createNotification:
+    handler: bin/notifications/create
+    events:
+      - http:
+          path: /notifications
+          method: post
+          cors: true
+          authorizer:
+            type: CUSTOM
+            authorizerId: {"Ref": "CoreAuthorizer"}
+
+  listNotifications:
+    handler: bin/notifications/list
+    events:
+      - http:
+          path: /notifications
+          method: get
+          cors: true
+          authorizer:
+            type: CUSTOM
+            authorizerId: {"Ref": "CoreAuthorizer"}
+
+  getNotification:
+    handler: bin/notifications/get
+    events:
+      - http:
+          path: /notifications/{notificationId}
+          method: get
+          cors: true
+          authorizer:
+            type: CUSTOM
+            authorizerId: {"Ref": "CoreAuthorizer"}
+
+  markNotificationRead:
+    handler: bin/notifications/mark-read
+    events:
+      - http:
+          path: /notifications/mark-read
+          method: post
+          cors: true
+          authorizer:
+            type: CUSTOM
+            authorizerId: {"Ref": "CoreAuthorizer"}
+
+  updateNotification:
+    handler: bin/notifications/update
+    events:
+      - http:
+          path: /notifications/{notificationId}
+          method: put
+          cors: true
+          authorizer:
+            type: CUSTOM
+            authorizerId: {"Ref": "CoreAuthorizer"}
+
+  sendNotification:
+    handler: bin/notifications/send
+    events:
+      - http:
+          path: /notifications/send
+          method: post
+          cors: true
+          authorizer:
+            type: CUSTOM
+            authorizerId: {"Ref": "CoreAuthorizer"}
+
+  # Notification Preferences
+  getNotificationPreferences:
+    handler: bin/notifications/preferences
+    events:
+      - http:
+          path: /notifications/preferences
+          method: get
+          cors: true
+          authorizer:
+            type: CUSTOM
+            authorizerId: {"Ref": "CoreAuthorizer"}
+
+  updateNotificationPreferences:
+    handler: bin/notifications/preferences
+    events:
+      - http:
+          path: /notifications/preferences
+          method: put
+          cors: true
+          authorizer:
+            type: CUSTOM
+            authorizerId: {"Ref": "CoreAuthorizer"}
+
+  # Notification Templates
+  listNotificationTemplates:
+    handler: bin/notifications/templates
+    events:
+      - http:
+          path: /notifications/templates
+          method: get
+          cors: true
+          authorizer:
+            type: CUSTOM
+            authorizerId: {"Ref": "CoreAuthorizer"}
+
+  getNotificationTemplate:
+    handler: bin/notifications/templates
+    events:
+      - http:
+          path: /notifications/templates/{templateId}
+          method: get
+          cors: true
+          authorizer:
+            type: CUSTOM
+            authorizerId: {"Ref": "CoreAuthorizer"}
+
+  createNotificationTemplate:
+    handler: bin/notifications/templates
+    events:
+      - http:
+          path: /notifications/templates
+          method: post
+          cors: true
+          authorizer:
+            type: CUSTOM
+            authorizerId: {"Ref": "CoreAuthorizer"}
+
+  updateNotificationTemplate:
+    handler: bin/notifications/templates
+    events:
+      - http:
+          path: /notifications/templates/{templateId}
+          method: put
+          cors: true
+          authorizer:
+            type: CUSTOM
+            authorizerId: {"Ref": "CoreAuthorizer"}
+
+  deleteNotificationTemplate:
+    handler: bin/notifications/templates
+    events:
+      - http:
+          path: /notifications/templates/{templateId}
+          method: delete
+          cors: true
+          authorizer:
+            type: CUSTOM
+            authorizerId: {"Ref": "CoreAuthorizer"}
+
+  # Email Services
+  sendEmail:
+    handler: bin/email/send
+    events:
+      - http:
+          path: /email/send
+          method: post
+          cors: true
+          authorizer:
+            type: CUSTOM
+            authorizerId: {"Ref": "CoreAuthorizer"}
+
+  sendEmailVerification:
+    handler: bin/email/verify/send
+    events:
+      - http:
+          path: /email/verify/send
+          method: post
+          cors: true
+          authorizer:
+            type: CUSTOM
+            authorizerId: {"Ref": "CoreAuthorizer"}
+
+  verifyEmail:
+    handler: bin/email/verify/confirm
+    events:
+      - http:
+          path: /email/verify/confirm
+          method: post
+          cors: true
+
+  # SMS Services
+  sendSMS:
+    handler: bin/sms/send
+    events:
+      - http:
+          path: /sms/send
+          method: post
+          cors: true
+          authorizer:
+            type: CUSTOM
+            authorizerId: {"Ref": "CoreAuthorizer"}
+
+  sendPhoneVerification:
+    handler: bin/sms/verify/send
+    events:
+      - http:
+          path: /sms/verify/send
+          method: post
+          cors: true
+          authorizer:
+            type: CUSTOM
+            authorizerId: {"Ref": "CoreAuthorizer"}
+
+  verifyPhone:
+    handler: bin/sms/verify/confirm
+    events:
+      - http:
+          path: /sms/verify/confirm
+          method: post
+          cors: true
+
+  # Two-Factor Authentication
+  setupTwoFA:
+    handler: bin/2fa/setup
+    events:
+      - http:
+          path: /2fa/setup
+          method: post
+          cors: true
+          authorizer:
+            type: CUSTOM
+            authorizerId: {"Ref": "CoreAuthorizer"}
+
+  verifyTwoFA:
+    handler: bin/2fa/verify
+    events:
+      - http:
+          path: /2fa/verify
+          method: post
+          cors: true
+          authorizer:
+            type: CUSTOM
+            authorizerId: {"Ref": "CoreAuthorizer"}
+
+  getTwoFAStatus:
+    handler: bin/2fa/status
+    events:
+      - http:
+          path: /2fa/status
+          method: get
+          cors: true
+          authorizer:
+            type: CUSTOM
+            authorizerId: {"Ref": "CoreAuthorizer"}
+
+  disableTwoFA:
+    handler: bin/2fa/disable
+    events:
+      - http:
+          path: /2fa/disable
+          method: post
+          cors: true
+          authorizer:
+            type: CUSTOM
+            authorizerId: {"Ref": "CoreAuthorizer"}
+
+  generateBackupCodes:
+    handler: bin/2fa/backup-codes
+    events:
+      - http:
+          path: /2fa/backup-codes
+          method: post
+          cors: true
+          authorizer:
+            type: CUSTOM
+            authorizerId: {"Ref": "CoreAuthorizer"}
+
+  sendSMSTwoFA:
+    handler: bin/2fa/sms/send
+    events:
+      - http:
+          path: /2fa/sms/send
+          method: post
+          cors: true
+          authorizer:
+            type: CUSTOM
+            authorizerId: {"Ref": "CoreAuthorizer"}
+
+resources:
+  Resources:
+    # Import Core Authorizer from main stack
+    CoreAuthorizer:
+      Type: AWS::ApiGateway::Authorizer
+      Properties:
+        Name: CoreAuthorizer
+        Type: REQUEST
+        IdentitySource: method.request.header.Authorization
+        RestApiId: {"Ref": "RestApi"}
+        AuthorizerUri: {"Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:listbackup-core-${self:provider.stage}-authorize/invocations"}
+        AuthorizerCredentials: {"Fn::Sub": "arn:aws:iam::${AWS::AccountId}:role/listbackup-core-${self:provider.stage}-${AWS::Region}-lambdaRole"}
+
+    # DynamoDB Tables
+    NotificationsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: listbackup-${self:provider.stage}-notifications
+        BillingMode: PROVISIONED
+        ProvisionedThroughput:
+          ReadCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.read}
+          WriteCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.write}
+        AttributeDefinitions:
+          - AttributeName: notificationId
+            AttributeType: S
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: accountId
+            AttributeType: S
+          - AttributeName: createdAt
+            AttributeType: S
+          - AttributeName: status
+            AttributeType: S
+        KeySchema:
+          - AttributeName: notificationId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: UserIndex
+            KeySchema:
+              - AttributeName: userId
+                KeyType: HASH
+              - AttributeName: createdAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+            ProvisionedThroughput:
+              ReadCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.read}
+              WriteCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.write}
+          - IndexName: AccountIndex
+            KeySchema:
+              - AttributeName: accountId
+                KeyType: HASH
+              - AttributeName: createdAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+            ProvisionedThroughput:
+              ReadCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.read}
+              WriteCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.write}
+          - IndexName: StatusIndex
+            KeySchema:
+              - AttributeName: userId
+                KeyType: HASH
+              - AttributeName: status
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+            ProvisionedThroughput:
+              ReadCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.read}
+              WriteCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.write}
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        SSESpecification:
+          SSEEnabled: true
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Service
+            Value: notifications
+
+    NotificationPreferencesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: listbackup-${self:provider.stage}-notification-preferences
+        BillingMode: PROVISIONED
+        ProvisionedThroughput:
+          ReadCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.read}
+          WriteCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.write}
+        AttributeDefinitions:
+          - AttributeName: userId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: userId
+            KeyType: HASH
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        SSESpecification:
+          SSEEnabled: true
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Service
+            Value: notifications
+
+    NotificationTemplatesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: listbackup-${self:provider.stage}-notification-templates
+        BillingMode: PROVISIONED
+        ProvisionedThroughput:
+          ReadCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.read}
+          WriteCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.write}
+        AttributeDefinitions:
+          - AttributeName: templateId
+            AttributeType: S
+          - AttributeName: accountId
+            AttributeType: S
+          - AttributeName: category
+            AttributeType: S
+        KeySchema:
+          - AttributeName: templateId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: AccountIndex
+            KeySchema:
+              - AttributeName: accountId
+                KeyType: HASH
+              - AttributeName: category
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+            ProvisionedThroughput:
+              ReadCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.read}
+              WriteCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.write}
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        SSESpecification:
+          SSEEnabled: true
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Service
+            Value: notifications
+
+    EmailTemplatesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: listbackup-${self:provider.stage}-email-templates
+        BillingMode: PROVISIONED
+        ProvisionedThroughput:
+          ReadCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.read}
+          WriteCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.write}
+        AttributeDefinitions:
+          - AttributeName: templateId
+            AttributeType: S
+          - AttributeName: accountId
+            AttributeType: S
+          - AttributeName: category
+            AttributeType: S
+        KeySchema:
+          - AttributeName: templateId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: AccountIndex
+            KeySchema:
+              - AttributeName: accountId
+                KeyType: HASH
+              - AttributeName: category
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+            ProvisionedThroughput:
+              ReadCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.read}
+              WriteCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.write}
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        SSESpecification:
+          SSEEnabled: true
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Service
+            Value: email
+
+    EmailVerificationsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: listbackup-${self:provider.stage}-email-verifications
+        BillingMode: PROVISIONED
+        ProvisionedThroughput:
+          ReadCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.read}
+          WriteCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.write}
+        AttributeDefinitions:
+          - AttributeName: verificationId
+            AttributeType: S
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: email
+            AttributeType: S
+        KeySchema:
+          - AttributeName: verificationId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: UserIndex
+            KeySchema:
+              - AttributeName: userId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+            ProvisionedThroughput:
+              ReadCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.read}
+              WriteCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.write}
+          - IndexName: EmailIndex
+            KeySchema:
+              - AttributeName: email
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+            ProvisionedThroughput:
+              ReadCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.read}
+              WriteCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.write}
+        TimeToLiveSpecification:
+          AttributeName: expiresAt
+          Enabled: true
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        SSESpecification:
+          SSEEnabled: true
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Service
+            Value: email
+
+    SMSTemplatesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: listbackup-${self:provider.stage}-sms-templates
+        BillingMode: PROVISIONED
+        ProvisionedThroughput:
+          ReadCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.read}
+          WriteCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.write}
+        AttributeDefinitions:
+          - AttributeName: templateId
+            AttributeType: S
+          - AttributeName: accountId
+            AttributeType: S
+          - AttributeName: category
+            AttributeType: S
+        KeySchema:
+          - AttributeName: templateId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: AccountIndex
+            KeySchema:
+              - AttributeName: accountId
+                KeyType: HASH
+              - AttributeName: category
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+            ProvisionedThroughput:
+              ReadCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.read}
+              WriteCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.write}
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        SSESpecification:
+          SSEEnabled: true
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Service
+            Value: sms
+
+    PhoneVerificationsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: listbackup-${self:provider.stage}-phone-verifications
+        BillingMode: PROVISIONED
+        ProvisionedThroughput:
+          ReadCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.read}
+          WriteCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.write}
+        AttributeDefinitions:
+          - AttributeName: verificationId
+            AttributeType: S
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: phoneNumber
+            AttributeType: S
+        KeySchema:
+          - AttributeName: verificationId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: UserIndex
+            KeySchema:
+              - AttributeName: userId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+            ProvisionedThroughput:
+              ReadCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.read}
+              WriteCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.write}
+          - IndexName: PhoneIndex
+            KeySchema:
+              - AttributeName: phoneNumber
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+            ProvisionedThroughput:
+              ReadCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.read}
+              WriteCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.write}
+        TimeToLiveSpecification:
+          AttributeName: expiresAt
+          Enabled: true
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        SSESpecification:
+          SSEEnabled: true
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Service
+            Value: sms
+
+    TwoFAMethodsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: listbackup-${self:provider.stage}-twofa-methods
+        BillingMode: PROVISIONED
+        ProvisionedThroughput:
+          ReadCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.read}
+          WriteCapacityUnits: ${self:custom.tableThroughput.${self:provider.stage}.write}
+        AttributeDefinitions:
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: method
+            AttributeType: S
+        KeySchema:
+          - AttributeName: userId
+            KeyType: HASH
+          - AttributeName: method
+            KeyType: RANGE
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        SSESpecification:
+          SSEEnabled: true
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Service
+            Value: twofa
+
+    # SNS Topic for Real-time Notifications
+    NotificationsTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: listbackup-${self:provider.stage}-notifications
+        DisplayName: ListBackup Notifications
+        KmsMasterKeyId: alias/aws/sns
+
+    # SES Configuration Set for Email Tracking
+    SESConfigurationSet:
+      Type: AWS::SES::ConfigurationSet
+      Properties:
+        Name: listbackup-${self:provider.stage}-emails
+
+    # CloudWatch Alarms
+    NotificationErrorsAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: listbackup-${self:provider.stage}-notification-errors
+        AlarmDescription: High error rate in notification functions
+        MetricName: Errors
+        Namespace: AWS/Lambda
+        Statistic: Sum
+        Period: 300
+        EvaluationPeriods: 2
+        Threshold: 10
+        ComparisonOperator: GreaterThanThreshold
+        Dimensions:
+          - Name: FunctionName
+            Value: {"Ref": "CreateNotificationLambdaFunction"}
+        AlarmActions:
+          - {"Ref": "NotificationsTopic"}
+
+  Outputs:
+    NotificationsTableName:
+      Description: DynamoDB table for notifications
+      Value: {"Ref": "NotificationsTable"}
+      Export:
+        Name: ${self:provider.stage}-NotificationsTable
+
+    NotificationPreferencesTableName:
+      Description: DynamoDB table for notification preferences
+      Value: {"Ref": "NotificationPreferencesTable"}
+      Export:
+        Name: ${self:provider.stage}-NotificationPreferencesTable
+
+    NotificationTemplatesTableName:
+      Description: DynamoDB table for notification templates
+      Value: {"Ref": "NotificationTemplatesTable"}
+      Export:
+        Name: ${self:provider.stage}-NotificationTemplatesTable
+
+    EmailTemplatesTableName:
+      Description: DynamoDB table for email templates
+      Value: {"Ref": "EmailTemplatesTable"}
+      Export:
+        Name: ${self:provider.stage}-EmailTemplatesTable
+
+    EmailVerificationsTableName:
+      Description: DynamoDB table for email verifications
+      Value: {"Ref": "EmailVerificationsTable"}
+      Export:
+        Name: ${self:provider.stage}-EmailVerificationsTable
+
+    SMSTemplatesTableName:
+      Description: DynamoDB table for SMS templates
+      Value: {"Ref": "SMSTemplatesTable"}
+      Export:
+        Name: ${self:provider.stage}-SMSTemplatesTable
+
+    PhoneVerificationsTableName:
+      Description: DynamoDB table for phone verifications
+      Value: {"Ref": "PhoneVerificationsTable"}
+      Export:
+        Name: ${self:provider.stage}-PhoneVerificationsTable
+
+    TwoFAMethodsTableName:
+      Description: DynamoDB table for 2FA methods
+      Value: {"Ref": "TwoFAMethodsTable"}
+      Export:
+        Name: ${self:provider.stage}-TwoFAMethodsTable
+
+    NotificationsTopicArn:
+      Description: SNS topic for notifications
+      Value: {"Ref": "NotificationsTopic"}
+      Export:
+        Name: ${self:provider.stage}-NotificationsTopic
+
+    SESConfigurationSetName:
+      Description: SES configuration set for email tracking
+      Value: {"Ref": "SESConfigurationSet"}
+      Export:
+        Name: ${self:provider.stage}-SESConfigurationSet

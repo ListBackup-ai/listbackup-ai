@@ -1,0 +1,198 @@
+service: listbackup-integrations
+
+frameworkVersion: '4'
+
+custom:
+  documentation:
+    api:
+      info:
+        version: "1.0.0"
+        title: "ListBackup Integrations API"
+        description: "OAuth and platform integration service for ListBackup.ai supporting multiple platform connections"
+        contact:
+          name: "ListBackup.ai Support"
+          email: "support@listbackup.ai"
+          url: "https://listbackup.ai"
+        license:
+          name: "MIT"
+          url: "https://opensource.org/licenses/MIT"
+      tags:
+        - name: "OAuth"
+          description: "OAuth 2.0 authentication flows for platform integrations"
+        - name: "Platform Integrations"
+          description: "Platform connection management and testing"
+    models:
+      - name: "OAuthStartRequest"
+        description: "OAuth flow initiation request"
+        contentType: "application/json"
+        schema:
+          type: "object"
+          properties:
+            provider:
+              type: "string"
+              description: "Platform provider identifier"
+              example: "google"
+              enum: ["google", "hubspot", "gohighlevel", "dropbox", "box", "quickbooks", "shopify", "keap", "stripe"]
+            redirectUri:
+              type: "string"
+              description: "OAuth callback URI (optional - will use default if not provided)"
+              example: "https://api.listbackup.ai/integrations/oauth/callback/google"
+            shopDomain:
+              type: "string"
+              description: "Shopify shop domain (required for Shopify only)"
+              example: "mystore"
+          required: ["provider"]
+      - name: "OAuthStartResponse"
+        description: "OAuth flow initiation response"
+        contentType: "application/json"
+        schema:
+          type: "object"
+          properties:
+            success:
+              type: "boolean"
+              example: true
+            data:
+              type: "object"
+              properties:
+                authUrl:
+                  type: "string"
+                  description: "OAuth authorization URL to redirect user to"
+                  example: "https://accounts.google.com/o/oauth2/v2/auth?client_id=..."
+                state:
+                  type: "string"
+                  description: "OAuth state parameter for security"
+                  example: "abc123def456"
+                provider:
+                  type: "string"
+                  description: "Platform provider identifier"
+                  example: "google"
+                redirectUri:
+                  type: "string"
+                  description: "OAuth callback URI that will be used"
+                  example: "https://api.listbackup.ai/integrations/oauth/callback/google"
+      - name: "ErrorResponse"
+        description: "Standard error response"
+        contentType: "application/json"
+        schema:
+          type: "object"
+          properties:
+            success:
+              type: "boolean"
+              example: false
+            error:
+              type: "string"
+              example: "Error message describing what went wrong"
+
+package:
+  individually: true
+
+provider:
+  name: aws
+  profile: listbackup.ai
+  runtime: provided.al2023
+  architecture: arm64  # Better price/performance ratio
+  region: us-west-2
+  stage: ${opt:stage, 'main'}
+  memorySize: 512
+  timeout: 29
+  tracing:
+    lambda: true
+    apiGateway: true  # Enable API Gateway tracing
+  httpApi:
+    id: ${cf:listbackup-api-gateway-${self:provider.stage}.HttpApiId}
+  environment:
+    STAGE: ${self:provider.stage}
+    DYNAMODB_TABLE_PREFIX: listbackup-${self:provider.stage}
+    API_VERSION: v1
+    API_REFERENCE: listbackup-api
+    EVENT_BUS_NAME: listbackup-events-${self:provider.stage}
+    OAUTH_STATES_TABLE: oauth-states-${self:provider.stage}
+    # Performance and monitoring
+    X_AMZN_TRACE_ID: enabled
+  iam:
+    role:
+      statements:
+        # DynamoDB permissions
+        - Effect: Allow
+          Action:
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:Query
+            - dynamodb:Scan
+          Resource:
+            - arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*
+            - arn:aws:dynamodb:${self:provider.region}:*:table/oauth-states-${self:provider.stage}
+        # Secrets Manager permissions
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+            - secretsmanager:CreateSecret
+            - secretsmanager:UpdateSecret
+            - secretsmanager:PutSecretValue
+          Resource:
+            - arn:aws:secretsmanager:${self:provider.region}:*:secret:app/oauth/*
+            - arn:aws:secretsmanager:${self:provider.region}:*:secret:sources/*
+        # EventBridge permissions
+        - Effect: Allow
+          Action:
+            - events:PutEvents
+          Resource: 
+            - arn:aws:events:${self:provider.region}:*:event-bus/listbackup-events-${self:provider.stage}
+
+functions:
+  # OAuth flow initiation
+  oauthStart:
+    handler: bootstrap
+    package:
+      artifact: bin/integrations/oauth-start.zip
+    description: "Initiate OAuth flow for platform integration - generates authorization URL and stores state"
+    memorySize: 256
+    timeout: 10
+    reservedConcurrency: 50
+    events:
+      - httpApi:
+          path: /integrations/oauth/{provider}/start
+          method: post
+          authorizer:
+            id: c0vpx0
+      - httpApi:
+          path: /integrations/oauth/{provider}/start
+          method: options
+    environment:
+      FUNCTION_NAME: oauth-start
+      USERS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-users
+      ACCOUNTS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-accounts
+      USER_ACCOUNTS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-user-accounts
+      ACTIVITY_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-activity
+      OAUTH_STATES_TABLE: ${self:provider.environment.OAUTH_STATES_TABLE}
+
+  # OAuth callback handler
+  oauthCallback:
+    handler: bootstrap
+    package:
+      artifact: bin/integrations/oauth-callback.zip
+    description: "Handle OAuth callback and exchange authorization code for access tokens"
+    memorySize: 512
+    timeout: 30
+    reservedConcurrency: 50
+    events:
+      - httpApi:
+          path: /integrations/oauth/callback/{provider}
+          method: get
+      - httpApi:
+          path: /integrations/oauth/callback/{provider}
+          method: options
+    environment:
+      FUNCTION_NAME: oauth-callback
+      USERS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-users
+      ACCOUNTS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-accounts
+      USER_ACCOUNTS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-user-accounts
+      ACTIVITY_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-activity
+      OAUTH_STATES_TABLE: ${self:provider.environment.OAUTH_STATES_TABLE}
+      SOURCES_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-sources
+      PLATFORM_CONNECTIONS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-platform-connections
+
+resources:
+  Description: "OAuth and platform integration infrastructure for ListBackup.ai"

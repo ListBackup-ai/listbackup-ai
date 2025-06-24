@@ -1,0 +1,46 @@
+version: 2
+updates:
+  # Frontend dependencies
+  - package-ecosystem: "npm"
+    directory: "/platforms/web"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      react:
+        patterns:
+          - "react*"
+          - "@types/react*"
+      next:
+        patterns:
+          - "next"
+          - "@next/*"
+      aws:
+        patterns:
+          - "@aws-sdk/*"
+          - "aws-*"
+    
+  # Backend Go dependencies
+  - package-ecosystem: "gomod"
+    directory: "/backend/golang"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      aws:
+        patterns:
+          - "github.com/aws/*"
+    
+  # Backend Node.js dependencies
+  - package-ecosystem: "npm"
+    directory: "/backend/nodejs-first-attempt"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5

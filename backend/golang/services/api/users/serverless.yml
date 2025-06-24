@@ -1,0 +1,169 @@
+service: listbackup-users
+
+frameworkVersion: '4'
+
+package:
+  individually: true
+
+provider:
+  name: aws
+  runtime: provided.al2023
+  architecture: arm64  # Better price/performance ratio
+  region: us-west-2
+  stage: ${opt:stage, 'main'}
+  memorySize: 512
+  timeout: 29
+  tracing:
+    lambda: true
+    apiGateway: true  # Enable API Gateway tracing
+  httpApi:
+    id: ${cf:listbackup-api-gateway-${self:provider.stage}.HttpApiId}
+  environment:
+    STAGE: ${self:provider.stage}
+    # Cognito configuration from infrastructure-cognito service
+    COGNITO_USER_POOL_ID: ${cf:listbackup-infrastructure-cognito-${self:provider.stage}.CognitoUserPoolId}
+    COGNITO_CLIENT_ID: ${cf:listbackup-infrastructure-cognito-${self:provider.stage}.CognitoUserPoolClientId}
+    COGNITO_CLIENT_SECRET: ""  # No secret for public client
+    COGNITO_REGION: ${self:provider.region}
+    COGNITO_JWKS_URI: ${cf:listbackup-infrastructure-cognito-${self:provider.stage}.CognitoJwksUri}
+    COGNITO_ISSUER: ${cf:listbackup-infrastructure-cognito-${self:provider.stage}.CognitoIssuer}
+    # DynamoDB table names from infrastructure-dynamodb service
+    USERS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UsersTableName}
+    ACCOUNTS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.AccountsTableName}
+    USER_ACCOUNTS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UserAccountsTableName}
+    ACTIVITY_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.ActivityTableName}
+    # EventBridge from infrastructure-eventbridge service
+    EVENT_BUS_NAME: ${cf:listbackup-infrastructure-eventbridge-${self:provider.stage}.EventBusName}
+    # API configuration
+    API_VERSION: v1
+    API_REFERENCE: listbackup-api
+    # Performance and monitoring
+    X_AMZN_TRACE_ID: enabled
+  iam:
+    role:
+      statements:
+        # DynamoDB permissions for user tables
+        - Effect: Allow
+          Action:
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:BatchGetItem
+            - dynamodb:BatchWriteItem
+          Resource:
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UsersTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.AccountsTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UserAccountsTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.ActivityTableArn}
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UsersTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.AccountsTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UserAccountsTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.ActivityTableArn}/index/*"
+        # Cognito permissions for user management
+        - Effect: Allow
+          Action:
+            - cognito-idp:AdminGetUser
+            - cognito-idp:AdminUpdateUserAttributes
+            - cognito-idp:GetUser
+            - cognito-idp:UpdateUserAttributes
+          Resource:
+            - ${cf:listbackup-infrastructure-cognito-${self:provider.stage}.CognitoUserPoolArn}
+        # EventBridge permissions for user events
+        - Effect: Allow
+          Action:
+            - events:PutEvents
+          Resource:
+            - ${cf:listbackup-infrastructure-eventbridge-${self:provider.stage}.EventBusArn}
+        # CloudWatch Logs permissions
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource: "arn:aws:logs:${self:provider.region}:*:*"
+        # X-Ray tracing permissions
+        - Effect: Allow
+          Action:
+            - xray:PutTraceSegments
+            - xray:PutTelemetryRecords
+          Resource: "*"
+
+functions:
+  # User profile management
+  usersGetMe:
+    handler: bootstrap
+    package:
+      artifact: bin/users/get-me.zip
+    description: "Retrieve the profile information for the currently authenticated user"
+    memorySize: 256
+    timeout: 10
+    reservedConcurrency: 100
+    events:
+      - httpApi:
+          path: /users/me
+          method: get
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: users-get-me
+
+  usersUpdateProfile:
+    handler: bootstrap
+    package:
+      artifact: bin/users/update-profile.zip
+    description: "Update user profile information for the currently authenticated user"
+    events:
+      - httpApi:
+          path: /users/me
+          method: put
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: users-update-profile
+
+  # User settings management
+  usersGetSettings:
+    handler: bootstrap
+    package:
+      artifact: bin/users/get-settings.zip
+    description: "Retrieve user settings and preferences for the currently authenticated user"
+    events:
+      - httpApi:
+          path: /users/me/settings
+          method: get
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: users-get-settings
+
+  usersUpdateSettings:
+    handler: bootstrap
+    package:
+      artifact: bin/users/update-settings.zip
+    description: "Update user settings and preferences for the currently authenticated user"
+    events:
+      - httpApi:
+          path: /users/me/settings
+          method: put
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: users-update-settings
+
+  # User account management
+  usersGetUserAccounts:
+    handler: bootstrap
+    package:
+      artifact: bin/users/get-user-accounts.zip
+    description: "Retrieve all accounts associated with the currently authenticated user"
+    events:
+      - httpApi:
+          path: /users/me/accounts
+          method: get
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: users-get-user-accounts

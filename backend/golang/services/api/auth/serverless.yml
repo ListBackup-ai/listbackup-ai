@@ -1,0 +1,314 @@
+service: listbackup-auth
+
+frameworkVersion: '4'
+
+custom:
+  documentation:
+    api:
+      info:
+        version: "1.0.0"
+        title: "ListBackup Authentication API"
+        description: "Complete authentication service for ListBackup.ai platform with JWT-based auth, user management, and hierarchical account system"
+        contact:
+          name: "ListBackup.ai Support"
+          email: "support@listbackup.ai"
+          url: "https://listbackup.ai"
+        license:
+          name: "MIT"
+          url: "https://opensource.org/licenses/MIT"
+      tags:
+        - name: "Authentication"
+          description: "User authentication and session management"
+        - name: "User Management" 
+          description: "User profile and account operations"
+        - name: "Account Management"
+          description: "Hierarchical account system operations"
+    models:
+      - name: "RegisterRequest"
+        description: "User registration request"
+        contentType: "application/json"
+        schema:
+          type: "object"
+          properties:
+            email:
+              type: "string"
+              format: "email"
+              description: "User's email address (must be unique)"
+              example: "user@company.com"
+            password:
+              type: "string"
+              minLength: 6
+              description: "User's password (minimum 6 characters)"
+              example: "SecurePassword123!"
+            name:
+              type: "string"
+              description: "User's full name"
+              example: "John Doe"
+            company:
+              type: "string"
+              description: "Optional company name"
+              example: "Acme Corporation"
+          required: ["email", "password", "name"]
+      - name: "LoginRequest"
+        description: "User login request"
+        contentType: "application/json"
+        schema:
+          type: "object"
+          properties:
+            email:
+              type: "string"
+              format: "email"
+              description: "User's email address"
+              example: "user@company.com"
+            password:
+              type: "string"
+              description: "User's password"
+              example: "SecurePassword123!"
+          required: ["email", "password"]
+      - name: "RefreshRequest"
+        description: "Token refresh request"
+        contentType: "application/json"
+        schema:
+          type: "object"
+          properties:
+            refreshToken:
+              type: "string"
+              description: "Valid refresh token from login response"
+              example: "eyJjdHkiOiJKV1QiLCJlbmMi..."
+          required: ["refreshToken"]
+      - name: "LogoutRequest"
+        description: "User logout request"
+        contentType: "application/json"
+        schema:
+          type: "object"
+          properties:
+            accessToken:
+              type: "string"
+              description: "Valid access token to invalidate"
+              example: "eyJraWQiOiJyVXBLS1VMN3Nk..."
+          required: ["accessToken"]
+      - name: "SuccessResponse"
+        description: "Standard success response"
+        contentType: "application/json"
+        schema:
+          type: "object"
+          properties:
+            success:
+              type: "boolean"
+              example: true
+            message:
+              type: "string"
+              example: "Operation completed successfully"
+            data:
+              type: "object"
+              description: "Response data (varies by endpoint)"
+      - name: "ErrorResponse"
+        description: "Standard error response"
+        contentType: "application/json"
+        schema:
+          type: "object"
+          properties:
+            success:
+              type: "boolean"
+              example: false
+            error:
+              type: "string"
+              example: "Error message describing what went wrong"
+            message:
+              type: "string"
+              example: ""
+
+package:
+  individually: true
+
+provider:
+  name: aws
+  profile: listbackup.ai
+  runtime: provided.al2023
+  architecture: arm64  # Better price/performance ratio
+  region: us-west-2
+  stage: ${opt:stage, 'main'}
+  memorySize: 512
+  timeout: 29
+  tracing:
+    lambda: true
+    apiGateway: true  # Enable API Gateway tracing
+  httpApi:
+    id: ${cf:listbackup-api-gateway-${self:provider.stage}.HttpApiId}
+  environment:
+    STAGE: ${self:provider.stage}
+    # Cognito configuration from infrastructure-cognito service
+    COGNITO_USER_POOL_ID: ${cf:listbackup-infrastructure-cognito-${self:provider.stage}.CognitoUserPoolId}
+    COGNITO_CLIENT_ID: ${cf:listbackup-infrastructure-cognito-${self:provider.stage}.CognitoUserPoolClientId}
+    COGNITO_CLIENT_SECRET: ""  # No secret for public client
+    COGNITO_REGION: ${self:provider.region}
+    COGNITO_JWKS_URI: ${cf:listbackup-infrastructure-cognito-${self:provider.stage}.CognitoJwksUri}
+    COGNITO_ISSUER: ${cf:listbackup-infrastructure-cognito-${self:provider.stage}.CognitoIssuer}
+    # DynamoDB table names from infrastructure-dynamodb service
+    USERS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UsersTableName}
+    ACCOUNTS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.AccountsTableName}
+    USER_ACCOUNTS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UserAccountsTableName}
+    ACTIVITY_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.ActivityTableName}
+    # EventBridge from infrastructure-eventbridge service
+    EVENT_BUS_NAME: ${cf:listbackup-infrastructure-eventbridge-${self:provider.stage}.EventBusName}
+    # API configuration
+    API_VERSION: v1
+    API_REFERENCE: listbackup-api
+    # Performance and monitoring
+    X_AMZN_TRACE_ID: enabled
+  iam:
+    role:
+      statements:
+        # DynamoDB permissions for auth tables
+        - Effect: Allow
+          Action:
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:BatchGetItem
+            - dynamodb:BatchWriteItem
+          Resource:
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UsersTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.AccountsTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UserAccountsTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.ActivityTableArn}
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UsersTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.AccountsTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UserAccountsTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.ActivityTableArn}/index/*"
+        # Cognito permissions for user management
+        - Effect: Allow
+          Action:
+            - cognito-idp:AdminCreateUser
+            - cognito-idp:AdminSetUserPassword
+            - cognito-idp:AdminDeleteUser
+            - cognito-idp:AdminGetUser
+            - cognito-idp:AdminUpdateUserAttributes
+            - cognito-idp:AdminListGroupsForUser
+            - cognito-idp:ListUsers
+            - cognito-idp:InitiateAuth
+            - cognito-idp:RespondToAuthChallenge
+            - cognito-idp:GlobalSignOut
+            - cognito-idp:AdminUserGlobalSignOut
+            - cognito-idp:GetUser
+            - cognito-idp:UpdateUserAttributes
+            - cognito-idp:ChangePassword
+            - cognito-idp:ConfirmSignUp
+            - cognito-idp:ResendConfirmationCode
+          Resource:
+            - ${cf:listbackup-infrastructure-cognito-${self:provider.stage}.CognitoUserPoolArn}
+        # EventBridge permissions for auth events
+        - Effect: Allow
+          Action:
+            - events:PutEvents
+          Resource:
+            - ${cf:listbackup-infrastructure-eventbridge-${self:provider.stage}.EventBusArn}
+        # CloudWatch Logs permissions
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource: "arn:aws:logs:${self:provider.region}:*:*"
+        # X-Ray tracing permissions
+        - Effect: Allow
+          Action:
+            - xray:PutTraceSegments
+            - xray:PutTelemetryRecords
+          Resource: "*"
+
+functions:
+  # Authentication endpoints
+  register:
+    handler: bootstrap
+    package:
+      artifact: bin/auth/register.zip
+    description: "Register new user account with hierarchical account creation and Cognito integration"
+    memorySize: 256
+    timeout: 10
+    reservedConcurrency: 100
+    events:
+      - httpApi:
+          path: /auth/register
+          method: post
+
+  login:
+    handler: bootstrap
+    package:
+      artifact: bin/auth/login.zip
+    description: "Authenticate user credentials and return JWT tokens for API access"
+    events:
+      - httpApi:
+          path: /auth/login
+          method: post
+
+  status:
+    handler: bootstrap
+    package:
+      artifact: bin/auth/status.zip
+    description: "Check authentication status and validate JWT token with debug information"
+    events:
+      - httpApi:
+          path: /auth/status
+          method: get
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: auth-status
+
+  # Auth functions (moved from API gateway service)
+  authRefresh:
+    handler: bootstrap
+    package:
+      artifact: bin/auth/refresh.zip
+    description: "Refresh JWT access token using valid refresh token for session extension"
+    events:
+      - httpApi:
+          path: /auth/refresh
+          method: post
+    environment:
+      FUNCTION_NAME: auth-refresh
+
+  authLogout:
+    handler: bootstrap
+    package:
+      artifact: bin/auth/logout.zip
+    description: "Invalidate user session by performing global logout in Cognito"
+    events:
+      - httpApi:
+          path: /auth/logout
+          method: post
+    environment:
+      FUNCTION_NAME: auth-logout
+
+  authGetProfile:
+    handler: bootstrap
+    package:
+      artifact: bin/auth/get-profile.zip
+    description: "Retrieve detailed user profile information including current account details"
+    events:
+      - httpApi:
+          path: /auth/profile
+          method: get
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: auth-get-profile
+
+  authGetAvailableAccounts:
+    handler: bootstrap
+    package:
+      artifact: bin/auth/get-available-accounts.zip
+    description: "Retrieve list of all accounts with role information and hierarchy details"
+    events:
+      - httpApi:
+          path: /auth/accounts
+          method: get
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: auth-get-available-accounts
+

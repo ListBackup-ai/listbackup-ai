@@ -1,0 +1,49 @@
+# serverless.yml in infra/domains
+
+service: listbackup-infrastructure-domains
+
+provider:
+  name: aws
+  profile: listbackup.ai
+  region: us-west-2 # Custom domains for API Gateway require us-east-1 certs if using edge-optimized endpoints, but we will use REGIONAL.
+  stage: ${opt:stage, 'main'}
+
+# We are only defining resources, so no functions are needed.
+functions: {}
+
+resources:
+  Resources:
+    # 1. Wildcard SSL Certificate for all API subdomains
+    ApiSSLCertificate:
+      Type: AWS::CertificateManager::Certificate
+      Properties:
+        DomainName: "*.api.listbackup.ai"
+        ValidationMethod: DNS
+        DomainValidationOptions:
+          - DomainName: "*.api.listbackup.ai"
+            HostedZoneId: "Z01040453V93CTQT4QFNW" # The Hosted Zone ID for listbackup.ai
+        Tags:
+          - Key: Service
+            Value: ${self:service}
+          - Key: ManagedBy
+            Value: Serverless
+
+    # 2. SSM Parameter to store the Certificate ARN for other services
+    SSLCertificateArnParameter:
+      Type: AWS::SSM::Parameter
+      Properties:
+        Name: /${self:provider.stage}/domains/api-certificate-arn
+        Description: "ARN of the wildcard SSL certificate for the API gateway"
+        Type: String
+        Value: {"Ref": "ApiSSLCertificate"}
+
+  Outputs:
+    SSLCertificateArn:
+      Description: "The ARN of the wildcard SSL certificate for *.api.listbackup.ai"
+      Value: {"Ref": "ApiSSLCertificate"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-SSLCertificateArn
+
+    SSMParameterName:
+      Description: "The name of the SSM Parameter storing the certificate ARN"
+      Value: {"Ref": "SSLCertificateArnParameter"} 

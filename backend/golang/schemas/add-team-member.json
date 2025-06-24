@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "type": "object",
+  "properties": {
+    "userId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "role": {
+      "type": "string",
+      "enum": ["admin", "member", "viewer"]
+    }
+  },
+  "required": ["userId", "role"],
+  "additionalProperties": false
+}

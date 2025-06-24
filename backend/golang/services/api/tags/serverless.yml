@@ -1,0 +1,359 @@
+service: listbackup-tags
+frameworkVersion: "4"
+
+plugins:
+  - serverless-go-plugin
+
+provider:
+  name: aws
+  profile: listbackup.ai
+  region: us-west-2
+  stage: ${opt:stage, 'main'}
+  runtime: provided.al2
+  architecture: arm64
+  
+  environment:
+    TAGS_TABLE: listbackup-${self:provider.stage}-tags
+    ENTITY_TAGS_TABLE: listbackup-${self:provider.stage}-entity-tags
+    AWS_REGION: ${self:provider.region}
+    STAGE: ${self:provider.stage}
+  
+  httpApi:
+    id: ${cf:listbackup-api-gateway-${self:provider.stage}.HttpApiId}
+    
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:BatchGetItem
+            - dynamodb:BatchWriteItem
+          Resource:
+            - arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-tags
+            - arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-tags/index/*
+            - arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-entity-tags
+            - arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-entity-tags/index/*
+
+functions:
+  # Tag Management
+  tags-create:
+    handler: cmd/handlers/tags/create/main.go
+    events:
+      - httpApi:
+          path: /tags
+          method: post
+          authorizer:
+            name: CognitoJWTAuthorizer
+            type: jwt
+            identitySource: $request.header.Authorization
+            issuerUrl: {n::sub: \}
+            audience:
+              - {"Ref": "CognitoUserPoolClient"}
+      - httpApi:
+          path: /tags
+          method: options
+
+  tags-list:
+    handler: cmd/handlers/tags/list/main.go
+    events:
+      - httpApi:
+          path: /tags
+          method: get
+          authorizer:
+            name: CognitoJWTAuthorizer
+            type: jwt
+            identitySource: $request.header.Authorization
+            issuerUrl: {n::sub: \}
+            audience:
+              - {"Ref": "CognitoUserPoolClient"}
+      - httpApi:
+          path: /tags
+          method: options
+
+  tags-get:
+    handler: cmd/handlers/tags/get/main.go
+    events:
+      - httpApi:
+          path: /tags/{tagId}
+          method: get
+          authorizer:
+            name: CognitoJWTAuthorizer
+            type: jwt
+            identitySource: $request.header.Authorization
+            issuerUrl: {n::sub: \}
+            audience:
+              - {"Ref": "CognitoUserPoolClient"}
+      - httpApi:
+          path: /tags/{tagId}
+          method: options
+
+  tags-update:
+    handler: cmd/handlers/tags/update/main.go
+    events:
+      - httpApi:
+          path: /tags/{tagId}
+          method: put
+          authorizer:
+            name: CognitoJWTAuthorizer
+            type: jwt
+            identitySource: $request.header.Authorization
+            issuerUrl: {n::sub: \}
+            audience:
+              - {"Ref": "CognitoUserPoolClient"}
+      - httpApi:
+          path: /tags/{tagId}
+          method: options
+
+  tags-delete:
+    handler: cmd/handlers/tags/delete/main.go
+    events:
+      - httpApi:
+          path: /tags/{tagId}
+          method: delete
+          authorizer:
+            name: CognitoJWTAuthorizer
+            type: jwt
+            identitySource: $request.header.Authorization
+            issuerUrl: {n::sub: \}
+            audience:
+              - {"Ref": "CognitoUserPoolClient"}
+      - httpApi:
+          path: /tags/{tagId}
+          method: options
+
+  # Tag Suggestions and Search
+  tags-suggestions:
+    handler: cmd/handlers/tags/suggestions/main.go
+    events:
+      - httpApi:
+          path: /tags/suggestions
+          method: get
+          authorizer:
+            name: CognitoJWTAuthorizer
+            type: jwt
+            identitySource: $request.header.Authorization
+            issuerUrl: {n::sub: \}
+            audience:
+              - {"Ref": "CognitoUserPoolClient"}
+      - httpApi:
+          path: /tags/suggestions
+          method: options
+
+  tags-search:
+    handler: cmd/handlers/tags/search/main.go
+    events:
+      - httpApi:
+          path: /tags/search
+          method: get
+          authorizer:
+            name: CognitoJWTAuthorizer
+            type: jwt
+            identitySource: $request.header.Authorization
+            issuerUrl: {n::sub: \}
+            audience:
+              - {"Ref": "CognitoUserPoolClient"}
+      - httpApi:
+          path: /tags/search
+          method: options
+
+  # Entity Tagging
+  entity-tags:
+    handler: cmd/handlers/tags/entity-tags/main.go
+    events:
+      # Get entity tags
+      - httpApi:
+          path: /entity-tags
+          method: get
+          authorizer:
+            name: CognitoJWTAuthorizer
+            type: jwt
+            identitySource: $request.header.Authorization
+            issuerUrl: {n::sub: \}
+            audience:
+              - {"Ref": "CognitoUserPoolClient"}
+      # Add entity tags
+      - httpApi:
+          path: /entity-tags
+          method: post
+          authorizer:
+            name: CognitoJWTAuthorizer
+            type: jwt
+            identitySource: $request.header.Authorization
+            issuerUrl: {n::sub: \}
+            audience:
+              - {"Ref": "CognitoUserPoolClient"}
+      # Remove entity tags
+      - httpApi:
+          path: /entity-tags
+          method: delete
+          authorizer:
+            name: CognitoJWTAuthorizer
+            type: jwt
+            identitySource: $request.header.Authorization
+            issuerUrl: {n::sub: \}
+            audience:
+              - {"Ref": "CognitoUserPoolClient"}
+      - httpApi:
+          path: /entity-tags
+          method: options
+
+resources:
+  Resources:
+    # Tags Table
+    TagsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: listbackup-${self:provider.stage}-tags
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: tagId
+            AttributeType: S
+          - AttributeName: accountId
+            AttributeType: S
+          - AttributeName: name
+            AttributeType: S
+          - AttributeName: usageCount
+            AttributeType: N
+          - AttributeName: createdAt
+            AttributeType: S
+          - AttributeName: updatedAt
+            AttributeType: S
+        KeySchema:
+          - AttributeName: tagId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          # For listing tags by account
+          - IndexName: AccountNameIndex
+            KeySchema:
+              - AttributeName: accountId
+                KeyType: HASH
+              - AttributeName: name
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          # For popular tags by usage
+          - IndexName: AccountUsageIndex
+            KeySchema:
+              - AttributeName: accountId
+                KeyType: HASH
+              - AttributeName: usageCount
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          # For recent tags
+          - IndexName: AccountCreatedIndex
+            KeySchema:
+              - AttributeName: accountId
+                KeyType: HASH
+              - AttributeName: createdAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          # For recently updated tags
+          - IndexName: AccountUpdatedIndex
+            KeySchema:
+              - AttributeName: accountId
+                KeyType: HASH
+              - AttributeName: updatedAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Service
+            Value: listbackup-tags
+
+    # Entity Tags Table
+    EntityTagsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: listbackup-${self:provider.stage}-entity-tags
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: entityTagId
+            AttributeType: S
+          - AttributeName: accountId
+            AttributeType: S
+          - AttributeName: entityId
+            AttributeType: S
+          - AttributeName: entityType
+            AttributeType: S
+          - AttributeName: tagId
+            AttributeType: S
+          - AttributeName: createdAt
+            AttributeType: S
+        KeySchema:
+          - AttributeName: entityTagId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          # For getting all tags for an entity
+          - IndexName: EntityIndex
+            KeySchema:
+              - AttributeName: entityId
+                KeyType: HASH
+              - AttributeName: entityType
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          # For getting all entities with a specific tag
+          - IndexName: TagIndex
+            KeySchema:
+              - AttributeName: tagId
+                KeyType: HASH
+              - AttributeName: entityId
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          # For entity-tag combination lookups
+          - IndexName: EntityTagIndex
+            KeySchema:
+              - AttributeName: entityId
+                KeyType: HASH
+              - AttributeName: tagId
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          # For account-based queries
+          - IndexName: AccountEntityIndex
+            KeySchema:
+              - AttributeName: accountId
+                KeyType: HASH
+              - AttributeName: entityId
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Service
+            Value: listbackup-entity-tags
+
+  Outputs:
+    TagsServiceName:
+      Description: "Tags service name"
+      Value: ${self:service}
+      Export:
+        Name: ${self:provider.stage}-TagsServiceName
+    
+    TagsTableName:
+      Description: "Tags DynamoDB table name"
+      Value: {"Ref": "TagsTable"}
+      Export:
+        Name: ${self:provider.stage}-TagsTableName
+    
+    EntityTagsTableName:
+      Description: "Entity Tags DynamoDB table name"
+      Value: {"Ref": "EntityTagsTable"}
+      Export:
+        Name: ${self:provider.stage}-EntityTagsTableName

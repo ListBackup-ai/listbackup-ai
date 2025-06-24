@@ -1,0 +1,174 @@
+service: listbackup-source-groups
+
+provider:
+  name: aws
+  profile: listbackup.ai
+  runtime: provided.al2023
+  region: us-west-2
+  stage: ${opt:stage, 'main'}
+  memorySize: 512
+  timeout: 30
+  tracing:
+    lambda: true
+  httpApi:
+    id: ${cf:listbackup-api-gateway-${self:provider.stage}.HttpApiId}
+  environment:
+    STAGE: ${self:provider.stage}
+    COGNITO_USER_POOL_ID: ${cf:listbackup-core-${self:provider.stage}.CognitoUserPoolId}
+    COGNITO_CLIENT_ID: ${cf:listbackup-core-${self:provider.stage}.CognitoUserPoolClientId}
+    COGNITO_CLIENT_SECRET: ""  # No secret for public client
+    COGNITO_REGION: ${self:provider.region}
+    COGNITO_JWKS_URI: 
+      Fn::Sub: "https://cognito-idp.${AWS::Region}.amazonaws.com/${cf:listbackup-core-${self:provider.stage}.CognitoUserPoolId}/.well-known/jwks.json"
+    COGNITO_ISSUER: 
+      Fn::Sub: "https://cognito-idp.${AWS::Region}.amazonaws.com/${cf:listbackup-core-${self:provider.stage}.CognitoUserPoolId}"
+    DYNAMODB_TABLE_PREFIX: listbackup-${self:provider.stage}
+    API_VERSION: v1
+    API_REFERENCE: listbackup-api
+    SOURCE_GROUPS_TABLE: ${cf:listbackup-core-${self:provider.stage}.SourceGroupsTableName}
+    PLATFORM_CONNECTIONS_TABLE: ${cf:listbackup-core-${self:provider.stage}.PlatformConnectionsTableName}
+    SOURCES_TABLE: ${cf:listbackup-core-${self:provider.stage}.SourcesTableName}
+    USERS_TABLE: ${cf:listbackup-core-${self:provider.stage}.UsersTableName}
+    ACCOUNTS_TABLE: ${cf:listbackup-core-${self:provider.stage}.AccountsTableName}
+  iam:
+    role:
+      statements:
+        # Comprehensive DynamoDB permissions with wildcards
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:BatchGetItem
+            - dynamodb:BatchWriteItem
+            - dynamodb:ConditionCheckItem
+            - dynamodb:DescribeTable
+            - dynamodb:CreateTable
+            - dynamodb:ListTables
+            - dynamodb:DescribeTimeToLive
+            - dynamodb:UpdateTimeToLive
+            - dynamodb:TagResource
+            - dynamodb:UntagResource
+            - dynamodb:ListTagsOfResource
+            - dynamodb:DescribeStream
+            - dynamodb:GetRecords
+            - dynamodb:GetShardIterator
+            - dynamodb:ListStreams
+            - dynamodb:DescribeLimits
+            - dynamodb:DescribeBackup
+            - dynamodb:ListBackups
+          Resource:
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/index/*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/stream/*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/backup/*"
+        # Additional DynamoDB permissions for account-level operations
+        - Effect: Allow
+          Action:
+            - dynamodb:ListTables
+            - dynamodb:DescribeLimits
+          Resource: "*"
+
+package:
+  individually: true
+
+functions:
+  # Source group endpoints
+  listSourceGroups:
+    handler: bootstrap
+    package:
+      patterns:
+        - bin/source-groups/list/bootstrap
+    events:
+      - httpApi:
+          path: /source-groups
+          method: GET
+          authorizer:
+            id: c0vpx0
+
+  createSourceGroup:
+    handler: bootstrap
+    package:
+      patterns:
+        - bin/source-groups/create/bootstrap
+    events:
+      - httpApi:
+          path: /source-groups
+          method: POST
+          authorizer:
+            id: c0vpx0
+
+  getSourceGroup:
+    handler: bootstrap
+    package:
+      patterns:
+        - bin/source-groups/get/bootstrap
+    events:
+      - httpApi:
+          path: /source-groups/{groupId}
+          method: GET
+          authorizer:
+            id: c0vpx0
+
+  updateSourceGroup:
+    handler: bootstrap
+    package:
+      patterns:
+        - bin/source-groups/update/bootstrap
+    events:
+      - httpApi:
+          path: /source-groups/{groupId}
+          method: PUT
+          authorizer:
+            id: c0vpx0
+
+  deleteSourceGroup:
+    handler: bootstrap
+    package:
+      patterns:
+        - bin/source-groups/delete/bootstrap
+    events:
+      - httpApi:
+          path: /source-groups/{groupId}
+          method: DELETE
+          authorizer:
+            id: c0vpx0
+
+  addSourceToGroup:
+    handler: bootstrap
+    package:
+      patterns:
+        - bin/source-groups/add-source/bootstrap
+    events:
+      - httpApi:
+          path: /source-groups/{groupId}/sources
+          method: POST
+          authorizer:
+            id: c0vpx0
+
+  removeSourceFromGroup:
+    handler: bootstrap
+    package:
+      patterns:
+        - bin/source-groups/remove-source/bootstrap
+    events:
+      - httpApi:
+          path: /source-groups/{groupId}/sources/{sourceId}
+          method: DELETE
+          authorizer:
+            id: c0vpx0
+
+  listGroupSources:
+    handler: bootstrap
+    package:
+      patterns:
+        - bin/source-groups/list-sources/bootstrap
+    events:
+      - httpApi:
+          path: /source-groups/{groupId}/sources
+          method: GET
+          authorizer:
+            id: c0vpx0

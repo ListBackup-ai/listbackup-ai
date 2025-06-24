@@ -1,0 +1,254 @@
+service: listbackup-sources
+
+provider:
+  name: aws
+  profile: listbackup.ai
+  runtime: provided.al2023
+  stage: ${opt:stage, 'main'}
+  region: us-west-2
+  architecture: arm64
+  memorySize: 512
+  timeout: 30
+  tracing:
+    lambda: true
+  httpApi:
+    id: ${cf:listbackup-api-gateway-${self:provider.stage}.HttpApiId}
+  environment:
+    STAGE: ${self:provider.stage}
+    DYNAMODB_TABLE_PREFIX: listbackup-${self:provider.stage}
+    COGNITO_USER_POOL_ID: ${cf:listbackup-core-${self:provider.stage}.CognitoUserPoolId}
+    COGNITO_CLIENT_ID: ${cf:listbackup-core-${self:provider.stage}.CognitoUserPoolClientId}
+    COGNITO_CLIENT_SECRET: ""  # No secret for public client
+    COGNITO_REGION: ${self:provider.region}
+    COGNITO_JWKS_URI: 
+      Fn::Sub: "https://cognito-idp.${AWS::Region}.amazonaws.com/${cf:listbackup-core-${self:provider.stage}.CognitoUserPoolId}/.well-known/jwks.json"
+    COGNITO_ISSUER: 
+      Fn::Sub: "https://cognito-idp.${AWS::Region}.amazonaws.com/${cf:listbackup-core-${self:provider.stage}.CognitoUserPoolId}"
+    SOURCES_TABLE: ${self:custom.sourcesTable}
+    PLATFORM_CONNECTIONS_TABLE: ${self:custom.platformConnectionsTable}
+    PLATFORM_SOURCES_TABLE: ${self:custom.platformSourcesTable}
+    SOURCE_GROUPS_TABLE: ${self:custom.sourceGroupsTable}
+    JOBS_TABLE: ${self:custom.jobsTable}
+    ACCOUNTS_TABLE: ${self:custom.accountsTable}
+    USERS_TABLE: ${self:custom.usersTable}
+    USER_ACCOUNTS_TABLE: ${self:custom.userAccountsTable}
+    ACTIVITY_TABLE: ${self:custom.activityTable}
+    API_VERSION: v1
+    API_REFERENCE: listbackup-api
+  iam:
+    role:
+      statements:
+        # Comprehensive DynamoDB permissions with wildcards
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:BatchGetItem
+            - dynamodb:BatchWriteItem
+            - dynamodb:ConditionCheckItem
+            - dynamodb:DescribeTable
+            - dynamodb:CreateTable
+            - dynamodb:ListTables
+            - dynamodb:DescribeTimeToLive
+            - dynamodb:UpdateTimeToLive
+            - dynamodb:TagResource
+            - dynamodb:UntagResource
+            - dynamodb:ListTagsOfResource
+            - dynamodb:DescribeStream
+            - dynamodb:GetRecords
+            - dynamodb:GetShardIterator
+            - dynamodb:ListStreams
+            - dynamodb:DescribeLimits
+            - dynamodb:DescribeBackup
+            - dynamodb:ListBackups
+          Resource:
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/index/*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/stream/*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/backup/*"
+        # Additional DynamoDB permissions for account-level operations
+        - Effect: Allow
+          Action:
+            - dynamodb:ListTables
+            - dynamodb:DescribeLimits
+          Resource: "*"
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:DeleteObject
+            - s3:ListBucket
+          Resource:
+            - "arn:aws:s3:::${cf:listbackup-core-${self:provider.stage}.DataName}"
+            - "arn:aws:s3:::${cf:listbackup-core-${self:provider.stage}.DataName}/*"
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+          Resource:
+            - "arn:aws:secretsmanager:${self:provider.region}:*:secret:listbackup/api-keys/*"
+            - "arn:aws:secretsmanager:${self:provider.region}:*:secret:sources/*"
+        - Effect: Allow
+          Action:
+            - events:PutEvents
+          Resource:
+            - "arn:aws:events:${self:provider.region}:*:event-bus/${cf:listbackup-core-${self:provider.stage}.EventBusName}"
+        - Effect: Allow
+          Action:
+            - xray:PutTraceSegments
+            - xray:PutTelemetryRecords
+          Resource: "*"
+
+custom:
+  sourcesTable: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-sources
+  platformConnectionsTable: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-platform-connections
+  platformSourcesTable: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-platform-sources
+  sourceGroupsTable: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-source-groups
+  jobsTable: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-jobs
+  accountsTable: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-accounts
+  usersTable: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-users
+  userAccountsTable: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-user-accounts
+  activityTable: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-activity
+
+package:
+  individually: true
+  patterns:
+    - '!**'
+
+functions:
+  # Core sources endpoints
+  listSources:
+    handler: bootstrap
+    description: Retrieve all data sources for the authenticated user
+    package:
+      patterns:
+        - '!./**'
+        - './bin/sources/list/bootstrap'
+      artifact: './dist/sources-list.zip'
+    events:
+      - httpApi:
+          path: /sources
+          method: get
+          authorizer:
+            id: c0vpx0
+    environment:
+      SOURCES_TABLE: ${self:custom.sourcesTable}
+      PLATFORM_CONNECTIONS_TABLE: ${self:custom.platformConnectionsTable}
+      PLATFORM_SOURCES_TABLE: ${self:custom.platformSourcesTable}
+      SOURCE_GROUPS_TABLE: ${self:custom.sourceGroupsTable}
+
+  getSource:
+    handler: bootstrap
+    description: Retrieve details of a specific data source
+    package:
+      patterns:
+        - '!./**'
+        - './bin/sources/get/bootstrap'
+      artifact: './dist/sources-get.zip'
+    events:
+      - httpApi:
+          path: /sources/{sourceId}
+          method: get
+          authorizer:
+            id: c0vpx0
+    environment:
+      SOURCES_TABLE: ${self:custom.sourcesTable}
+
+  createSource:
+    handler: bootstrap
+    description: Create a new data source from a platform connection
+    package:
+      patterns:
+        - '!./**'
+        - './bin/sources/create/bootstrap'
+      artifact: './dist/sources-create.zip'
+    events:
+      - httpApi:
+          path: /sources
+          method: post
+          authorizer:
+            id: c0vpx0
+    environment:
+      SOURCES_TABLE: ${self:custom.sourcesTable}
+      PLATFORM_CONNECTIONS_TABLE: ${self:custom.platformConnectionsTable}
+      PLATFORM_SOURCES_TABLE: ${self:custom.platformSourcesTable}
+      SOURCE_GROUPS_TABLE: ${self:custom.sourceGroupsTable}
+
+  updateSource:
+    handler: bootstrap
+    description: Update the configuration or settings of a data source
+    package:
+      patterns:
+        - '!./**'
+        - './bin/sources/update/bootstrap'
+      artifact: './dist/sources-update.zip'
+    events:
+      - httpApi:
+          path: /sources/{sourceId}
+          method: put
+          authorizer:
+            id: c0vpx0
+    environment:
+      SOURCES_TABLE: ${self:custom.sourcesTable}
+      SOURCE_GROUPS_TABLE: ${self:custom.sourceGroupsTable}
+
+  deleteSource:
+    handler: bootstrap
+    description: Remove a data source and stop all associated backups
+    package:
+      patterns:
+        - '!./**'
+        - './bin/sources/delete/bootstrap'
+      artifact: './dist/sources-delete.zip'
+    events:
+      - httpApi:
+          path: /sources/{sourceId}
+          method: delete
+          authorizer:
+            id: c0vpx0
+    environment:
+      SOURCES_TABLE: ${self:custom.sourcesTable}
+      JOBS_TABLE: ${self:custom.jobsTable}
+
+  syncSource:
+    handler: bootstrap
+    description: Trigger a manual synchronization of data from the source platform
+    package:
+      patterns:
+        - '!./**'
+        - './bin/sources/sync/bootstrap'
+      artifact: './dist/sources-sync.zip'
+    events:
+      - httpApi:
+          path: /sources/{sourceId}/sync
+          method: post
+          authorizer:
+            id: c0vpx0
+    environment:
+      SOURCES_TABLE: ${self:custom.sourcesTable}
+      PLATFORM_CONNECTIONS_TABLE: ${self:custom.platformConnectionsTable}
+      PLATFORM_SOURCES_TABLE: ${self:custom.platformSourcesTable}
+
+  testSource:
+    handler: bootstrap
+    description: Test a data source to verify it can access data properly
+    package:
+      patterns:
+        - '!./**'
+        - './bin/sources/test/bootstrap'
+      artifact: './dist/sources-test.zip'
+    events:
+      - httpApi:
+          path: /sources/{sourceId}/test
+          method: post
+          authorizer:
+            id: c0vpx0
+    environment:
+      SOURCES_TABLE: ${self:custom.sourcesTable}
+      ACCOUNTS_TABLE: ${self:custom.accountsTable}
+      USERS_TABLE: ${self:custom.usersTable}
+      USER_ACCOUNTS_TABLE: ${self:custom.userAccountsTable}
+      ACTIVITY_TABLE: ${self:custom.activityTable}

@@ -1,0 +1,153 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Build artifacts
+*.zip
+bin/
+backend/golang/bin/
+backend/golang/cmd/handlers/*/bootstrap
+backend/golang/cmd/handlers/*/*.zip
+
+# Go build artifacts
+*.so
+*.dylib
+*.test
+*.out
+*.tar.gz
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# Temporary files
+*.tmp
+*.temp
+
+# Build directories
+dist/
+build/
+
+# Serverless directories
+.serverless/
+
+# Go binary outputs
+backend/golang/bin/*
+!backend/golang/bin/.gitkeep
+
+# Response files and tokens
+response.json
+jwt_token.txt
+source_id.txt
+login_response.json
+
+# CloudFormation outputs
+*.zip
+exported-openapi.yml
+
+# Additional files that should be gitignored
+
+# AWS credentials and config
+.aws/
+aws/
+*.pem
+*.key
+*accessKeys.csv
+mac-studio-serverless_accessKeys.csv
+
+# Backup files
+*.backup
+*.bak
+*~
+
+# Testing artifacts
+backend/golang/testing-artifacts/
+testing/
+test-data/
+
+# Scripts and deployment artifacts
+scripts/temp/
+scripts/logs/
+deployment-logs/
+
+# Documentation build artifacts
+docs/build/
+docs/dist/
+
+# Mobile platform specific
+platforms/ios/ListBackup/ListBackup.xcworkspace/
+platforms/ios/ListBackup/Pods/
+platforms/ios/ListBackup/build/
+platforms/mobile/android/app/build/
+platforms/mobile/ios/build/
+
+# Web build artifacts
+platforms/web/dist/
+platforms/web/.next/
+platforms/web/out/
+platforms/web/node_modules/
+
+# Go binary outputs
+backend/golang/bin/
+backend/golang/cmd/bin/
+backend/golang/cmd/handlers/*/bootstrap
+backend/golang/cmd/handlers/*/*.zip
+backend/golang/register
+
+# Package manager files
+yarn.lock
+package-lock.json
+
+# Local configuration
+.env.production
+.env.staging
+.env.development
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Cache directories
+.cache/
+.npm/
+.yarn/
+
+# Editor directories and files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Tailscale
+tailscale-ssh

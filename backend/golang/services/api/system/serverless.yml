@@ -1,0 +1,104 @@
+service: listbackup-system
+
+frameworkVersion: '4'
+
+provider:
+  name: aws
+  profile: listbackup.ai
+  runtime: provided.al2023
+  region: us-west-2
+  stage: ${opt:stage, 'main'}
+  environment:
+    STAGE: ${self:provider.stage}
+    COGNITO_USER_POOL_ID: ${ssm:/cognito-user-pool-id}
+    COGNITO_CLIENT_ID: ${ssm:/cognito-client-id}
+    COGNITO_CLIENT_SECRET: ${ssm:/cognito-client-secret}
+    COGNITO_REGION: ${ssm:/cognito-region}
+    COGNITO_JWKS_URI: ${ssm:/cognito-jwks-uri}
+    COGNITO_ISSUER: ${ssm:/cognito-issuer}
+    DYNAMODB_TABLE_PREFIX: listbackup-${self:provider.stage}
+    API_VERSION: v1
+    API_REFERENCE: listbackup-api
+  iam:
+    role:
+      statements:
+        # Comprehensive DynamoDB permissions with wildcards
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:BatchGetItem
+            - dynamodb:BatchWriteItem
+            - dynamodb:ConditionCheckItem
+            - dynamodb:DescribeTable
+            - dynamodb:CreateTable
+            - dynamodb:ListTables
+            - dynamodb:DescribeTimeToLive
+            - dynamodb:UpdateTimeToLive
+            - dynamodb:TagResource
+            - dynamodb:UntagResource
+            - dynamodb:ListTagsOfResource
+            - dynamodb:DescribeStream
+            - dynamodb:GetRecords
+            - dynamodb:GetShardIterator
+            - dynamodb:ListStreams
+            - dynamodb:DescribeLimits
+            - dynamodb:DescribeBackup
+            - dynamodb:ListBackups
+          Resource:
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/index/*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/stream/*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/backup/*"
+        # Additional DynamoDB permissions for account-level operations
+        - Effect: Allow
+          Action:
+            - dynamodb:ListTables
+            - dynamodb:DescribeLimits
+          Resource: "*"
+        - Effect: Allow
+          Action:
+            - apigateway:GET
+            - apigateway:POST
+          Resource:
+            # - "arn:aws:apigateway:${self:provider.region}::/apis/${cf:listbackup-api-${self:provider.stage}.HttpApiId}"
+            # - "arn:aws:apigateway:${self:provider.region}::/apis/${cf:listbackup-api-${self:provider.stage}.HttpApiId}/*"
+  httpApi:
+    id: ${cf:listbackup-api-gateway-${self:provider.stage}.HttpApiId}
+
+package:
+  patterns:
+    - '!./**'
+    - './bin/**'
+
+functions:
+  # System health and monitoring
+  health:
+    handler: bin/system/health
+    description: Check the health status of the system and its dependencies
+    events:
+      - httpApi:
+          path: /system/health
+          method: get
+          # No authorizer - public endpoint
+    environment:
+      ACCOUNTS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-accounts
+      USERS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-users
+      SOURCES_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-sources
+
+  # OpenAPI specification export
+  openapi-export:
+    handler: bin/system/openapi-export
+    description: Export OpenAPI specification for the API
+    events:
+      - httpApi:
+          path: /system/openapi-export
+          method: get
+          authorizer:
+            type: jwt
+            authorizerId: ${cf:listbackup-api-gateway-${self:provider.stage}-CognitoAuthorizerId}
+

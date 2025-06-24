@@ -1,0 +1,234 @@
+service: listbackup-jobs
+
+frameworkVersion: '4'
+
+provider:
+  name: aws
+  profile: listbackup.ai
+  runtime: provided.al2023
+  region: us-west-2
+  stage: ${opt:stage, 'main'}
+  httpApi:
+    id: ${cf:listbackup-api-gateway-${self:provider.stage}.HttpApiId}
+  environment:
+    STAGE: ${self:provider.stage}
+    COGNITO_USER_POOL_ID: ${ssm:/cognito-user-pool-id}
+    COGNITO_CLIENT_ID: ${ssm:/cognito-client-id}
+    COGNITO_CLIENT_SECRET: ${ssm:/cognito-client-secret}
+    COGNITO_REGION: ${ssm:/cognito-region}
+    COGNITO_JWKS_URI: ${ssm:/cognito-jwks-uri}
+    COGNITO_ISSUER: ${ssm:/cognito-issuer}
+    DYNAMODB_TABLE_PREFIX: listbackup-${self:provider.stage}
+    S3_BUCKET: listbackup-data-${self:provider.stage}
+    API_VERSION: v1
+    API_REFERENCE: listbackup-api
+    EVENT_BUS_NAME: listbackup-events-${self:provider.stage}
+    # Job Type Queue URLs
+    # SYNC_QUEUE_URL: ${cf:listbackup-core-${self:provider.stage}.SyncQueueUrl}
+    # BACKUP_QUEUE_URL: ${cf:listbackup-core-${self:provider.stage}.BackupQueueUrl}
+    # EXPORT_QUEUE_URL: ${cf:listbackup-core-${self:provider.stage}.ExportQueueUrl}
+    # ANALYTICS_QUEUE_URL: ${cf:listbackup-core-${self:provider.stage}.AnalyticsQueueUrl}
+    # MAINTENANCE_QUEUE_URL: ${cf:listbackup-core-${self:provider.stage}.MaintenanceQueueUrl}
+    # ALERT_QUEUE_URL: ${cf:listbackup-core-${self:provider.stage}.AlertQueueUrl}
+  iam:
+    role:
+      statements:
+        # Comprehensive DynamoDB permissions with wildcards
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:BatchGetItem
+            - dynamodb:BatchWriteItem
+            - dynamodb:ConditionCheckItem
+            - dynamodb:DescribeTable
+            - dynamodb:CreateTable
+            - dynamodb:ListTables
+            - dynamodb:DescribeTimeToLive
+            - dynamodb:UpdateTimeToLive
+            - dynamodb:TagResource
+            - dynamodb:UntagResource
+            - dynamodb:ListTagsOfResource
+            - dynamodb:DescribeStream
+            - dynamodb:GetRecords
+            - dynamodb:GetShardIterator
+            - dynamodb:ListStreams
+            - dynamodb:DescribeLimits
+            - dynamodb:DescribeBackup
+            - dynamodb:ListBackups
+          Resource:
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/index/*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/stream/*"
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-*/backup/*"
+        # Additional DynamoDB permissions for account-level operations
+        - Effect: Allow
+          Action:
+            - dynamodb:ListTables
+            - dynamodb:DescribeLimits
+          Resource: "*"
+        - Effect: Allow
+          Action:
+            - sqs:SendMessage
+            - sqs:ReceiveMessage
+            - sqs:DeleteMessage
+            - sqs:GetQueueAttributes
+            - sqs:ChangeMessageVisibility
+          Resource:
+            # Job Type Queues
+            - "arn:aws:sqs:${self:provider.region}:*:listbackup-sync-queue-${self:provider.stage}.fifo"
+            - "arn:aws:sqs:${self:provider.region}:*:listbackup-backup-queue-${self:provider.stage}.fifo"
+            - "arn:aws:sqs:${self:provider.region}:*:listbackup-export-queue-${self:provider.stage}.fifo"
+            - "arn:aws:sqs:${self:provider.region}:*:listbackup-analytics-queue-${self:provider.stage}.fifo"
+            - "arn:aws:sqs:${self:provider.region}:*:listbackup-maintenance-queue-${self:provider.stage}.fifo"
+            - "arn:aws:sqs:${self:provider.region}:*:listbackup-alert-queue-${self:provider.stage}.fifo"
+            # Dead Letter Queues
+            - "arn:aws:sqs:${self:provider.region}:*:listbackup-sync-dlq-${self:provider.stage}.fifo"
+            - "arn:aws:sqs:${self:provider.region}:*:listbackup-backup-dlq-${self:provider.stage}.fifo"
+            - "arn:aws:sqs:${self:provider.region}:*:listbackup-export-dlq-${self:provider.stage}.fifo"
+            - "arn:aws:sqs:${self:provider.region}:*:listbackup-analytics-dlq-${self:provider.stage}.fifo"
+            - "arn:aws:sqs:${self:provider.region}:*:listbackup-maintenance-dlq-${self:provider.stage}.fifo"
+            - "arn:aws:sqs:${self:provider.region}:*:listbackup-alert-dlq-${self:provider.stage}.fifo"
+        - Effect: Allow
+          Action:
+            - events:PutEvents
+          Resource:
+            - "arn:aws:events:${self:provider.region}:*:event-bus/listbackup-events-${self:provider.stage}"
+        - Effect: Allow
+          Action:
+            - dynamodb:DescribeStream
+            - dynamodb:GetRecords
+            - dynamodb:GetShardIterator
+            - dynamodb:ListStreams
+          Resource:
+            - "arn:aws:dynamodb:${self:provider.region}:*:table/listbackup-${self:provider.stage}-jobs/stream/*"
+
+package:
+  individually: true
+
+functions:
+  # Job management endpoints
+  createJob:
+    handler: bootstrap
+    description: Create a new background job for data processing or backup
+    package:
+      patterns:
+        - '!./**'
+        - 'bin/jobs/create/**'
+    events:
+      - httpApi:
+          path: /jobs
+          method: post
+          authorizer:
+            id: c0vpx0
+
+    environment:
+      JOBS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-jobs
+      SOURCES_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-sources
+      ACCOUNTS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-accounts
+      USERS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-users
+      USER_ACCOUNTS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-user-accounts
+      ACTIVITY_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-activity
+
+  getJob:
+    handler: bootstrap
+    description: Retrieve the status and details of a background job
+    package:
+      patterns:
+        - '!./**'
+        - 'bin/jobs/get/**'
+    events:
+      - httpApi:
+          path: /jobs/{jobId}
+          method: get
+          authorizer:
+            id: c0vpx0
+
+    environment:
+      JOBS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-jobs
+      ACCOUNTS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-accounts
+      USERS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-users
+      USER_ACCOUNTS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-user-accounts
+
+  listJobs:
+    handler: bootstrap
+    description: List all jobs for an account with optional filtering
+    package:
+      patterns:
+        - '!./**'
+        - 'bin/jobs/list/**'
+    events:
+      - httpApi:
+          path: /jobs
+          method: get
+          authorizer:
+            id: c0vpx0
+
+    environment:
+      JOBS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-jobs
+      ACCOUNTS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-accounts
+      USERS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-users
+      USER_ACCOUNTS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-user-accounts
+
+  updateJob:
+    handler: bootstrap
+    description: Update job settings like schedule, status, or priority
+    package:
+      patterns:
+        - '!./**'
+        - 'bin/jobs/update/**'
+    events:
+      - httpApi:
+          path: /jobs/{jobId}
+          method: put
+          authorizer:
+            id: c0vpx0
+
+    environment:
+      JOBS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-jobs
+      ACTIVITY_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-activity
+
+  deleteJob:
+    handler: bootstrap
+    description: Delete a job (only allowed if not running)
+    package:
+      patterns:
+        - '!./**'
+        - 'bin/jobs/delete/**'
+    events:
+      - httpApi:
+          path: /jobs/{jobId}
+          method: delete
+          authorizer:
+            id: c0vpx0
+
+    environment:
+      JOBS_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-jobs
+      ACTIVITY_TABLE: ${self:provider.environment.DYNAMODB_TABLE_PREFIX}-activity
+
+  queueJob:
+    handler: bootstrap
+    description: Process job queue events from DynamoDB streams
+    package:
+      patterns:
+        - '!./**'
+        - 'bin/jobs/queue/**'
+    events:
+      - stream:
+          type: dynamodb
+          arn: ${cf:listbackup-core-${self:provider.stage}.JobsTableStreamArn}
+          batchSize: 10
+          startingPosition: LATEST
+
+    environment:
+      SYNC_QUEUE_URL: ${cf:listbackup-core-${self:provider.stage}.SyncQueueUrl}
+      BACKUP_QUEUE_URL: ${cf:listbackup-core-${self:provider.stage}.BackupQueueUrl}
+      EXPORT_QUEUE_URL: ${cf:listbackup-core-${self:provider.stage}.ExportQueueUrl}
+      ANALYTICS_QUEUE_URL: ${cf:listbackup-core-${self:provider.stage}.AnalyticsQueueUrl}
+      MAINTENANCE_QUEUE_URL: ${cf:listbackup-core-${self:provider.stage}.MaintenanceQueueUrl}
+      ALERT_QUEUE_URL: ${cf:listbackup-core-${self:provider.stage}.AlertQueueUrl}
+
