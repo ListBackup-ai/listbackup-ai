@@ -4,7 +4,7 @@ provider:
   name: aws
   profile: listbackup.ai
   runtime: provided.al2023
-  stage: ${opt:stage, 'main'}
+  stage: ${opt:stage, 'dev'}
   region: us-west-2
   architecture: arm64
   memorySize: 512

@@ -6,7 +6,7 @@ provider:
   name: aws
   runtime: provided.al2023
   region: us-west-2
-  stage: ${opt:stage, 'main'}
+  stage: ${opt:stage, 'dev'}
   environment:
     STAGE: ${self:provider.stage}
     # Cognito configuration from infrastructure-cognito service

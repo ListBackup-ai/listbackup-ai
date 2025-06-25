@@ -8,7 +8,7 @@ provider:
   name: aws
   profile: listbackup.ai
   region: us-west-2
-  stage: ${opt:stage, 'main'}
+  stage: ${opt:stage, 'dev'}
   runtime: provided.al2
   architecture: arm64
   

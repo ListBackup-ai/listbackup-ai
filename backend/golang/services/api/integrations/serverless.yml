@@ -92,7 +92,7 @@ provider:
   runtime: provided.al2023
   architecture: arm64  # Better price/performance ratio
   region: us-west-2
-  stage: ${opt:stage, 'main'}
+  stage: ${opt:stage, 'dev'}
   memorySize: 512
   timeout: 29
   tracing:

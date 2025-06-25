@@ -7,7 +7,7 @@ provider:
   profile: listbackup.ai
   runtime: provided.al2023
   architecture: arm64
-  stage: ${opt:stage, 'main'}
+  stage: ${opt:stage, 'dev'}
   region: us-west-2
   memorySize: 256
   timeout: 30

@@ -6,7 +6,7 @@ provider:
   name: aws
   profile: listbackup.ai
   region: us-west-2
-  stage: ${opt:stage, 'main'}
+  stage: ${opt:stage, 'dev'}
 
 # We are only defining resources, so no functions are needed.
 functions: {}

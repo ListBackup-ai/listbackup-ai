@@ -9,7 +9,7 @@ provider:
   runtime: provided.al2
   architecture: arm64
   region: us-west-2
-  stage: ${opt:stage, 'main'}
+  stage: ${opt:stage, 'dev'}
   
   environment:
     DYNAMODB_TABLE: ${self:service}-${self:provider.stage}

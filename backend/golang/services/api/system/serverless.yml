@@ -7,7 +7,7 @@ provider:
   profile: listbackup.ai
   runtime: provided.al2023
   region: us-west-2
-  stage: ${opt:stage, 'main'}
+  stage: ${opt:stage, 'dev'}
   environment:
     STAGE: ${self:provider.stage}
     COGNITO_USER_POOL_ID: ${ssm:/cognito-user-pool-id}
