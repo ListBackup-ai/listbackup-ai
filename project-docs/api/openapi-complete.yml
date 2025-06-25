@@ -1,0 +1,1359 @@
+openapi: 3.0.3
+info:
+  title: "ListBackup.ai v2 Complete API"
+  description: |
+    Complete API specification for ListBackup.ai v2 platform including all 12 microservices:
+    
+    **Services Included:**
+    - Authentication Service (7 endpoints)
+    - Users Service (5 endpoints) 
+    - Accounts Service (10 endpoints)
+    - Teams Service (14 endpoints)
+    - Clients Service (20 endpoints)
+    - Sources Service (7 endpoints)
+    - Source Groups Service (8 endpoints)
+    - Connections Service (6 endpoints)
+    - Platforms Service (6 endpoints)
+    - Jobs Service (6 endpoints)
+    - Domains Service (8 endpoints)
+    - System Service (3 endpoints)
+    
+    **Key Features:**
+    - OAuth 2.0 integration with 9 platforms
+    - Hierarchical account management
+    - Multi-tenant architecture
+    - JWT-based authentication
+    - Role-based access control
+    
+  version: "2.0.0"
+  contact:
+    name: "ListBackup.ai Support"
+    email: "support@listbackup.ai"
+    url: "https://listbackup.ai"
+  license:
+    name: "MIT"
+    url: "https://opensource.org/licenses/MIT"
+
+servers:
+  - url: "https://api.listbackup.ai"
+    description: "Production API"
+  - url: "https://main.api.listbackup.ai"
+    description: "Main/Staging API"
+  - url: "https://staging.api.listbackup.ai"
+    description: "Staging API"
+
+tags:
+  - name: "Authentication"
+    description: "User authentication and session management"
+  - name: "Users"
+    description: "User profile and settings management"
+  - name: "Accounts"
+    description: "Hierarchical account system operations"
+  - name: "Teams"
+    description: "Team collaboration and member management"
+  - name: "Clients"
+    description: "Customer portal and access management"
+  - name: "Sources"
+    description: "Data source configuration and management"
+  - name: "Source Groups"
+    description: "Logical organization of data sources"
+  - name: "Connections"
+    description: "Platform OAuth and API connections"
+  - name: "Platforms"
+    description: "Platform definitions and integration metadata"
+  - name: "Jobs"
+    description: "Background job processing and queue management"
+  - name: "Domains"
+    description: "Custom domain and DNS management"
+  - name: "OAuth"
+    description: "OAuth 2.0 integration flows"
+  - name: "System"
+    description: "System health and API documentation"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "JWT Bearer token obtained from login endpoint"
+    
+    AccountContext:
+      type: apiKey
+      in: header
+      name: X-Account-Context
+      description: "Account context for hierarchical operations"
+
+  parameters:
+    AccountIdParam:
+      name: accountId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^acc-[a-zA-Z0-9]{8,32}$'
+      description: "Account identifier"
+      example: "acc-12345678"
+    
+    UserIdParam:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^usr-[a-zA-Z0-9]{8,32}$'
+      description: "User identifier"
+      example: "usr-87654321"
+    
+    SourceIdParam:
+      name: sourceId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^src-[a-zA-Z0-9]{8,32}$'
+      description: "Source identifier"
+      example: "src-12345678"
+    
+    TeamIdParam:
+      name: teamId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^team-[a-zA-Z0-9]{8,32}$'
+      description: "Team identifier"
+      example: "team-12345678"
+    
+    ConnectionIdParam:
+      name: connectionId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^conn-[a-zA-Z0-9]{8,32}$'
+      description: "Connection identifier"
+      example: "conn-12345678"
+    
+    JobIdParam:
+      name: jobId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^job-[a-zA-Z0-9]{8,32}$'
+      description: "Job identifier"
+      example: "job-12345678"
+    
+    PlatformParam:
+      name: platform
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: ["keap", "stripe", "gohighlevel", "hubspot", "google", "dropbox", "box", "quickbooks", "shopify"]
+      description: "Platform identifier for OAuth integration"
+      example: "keap"
+
+  schemas:
+    # Common Schemas
+    Error:
+      type: object
+      required: ["error", "message"]
+      properties:
+        error:
+          type: string
+          description: "Error code"
+          example: "VALIDATION_ERROR"
+        message:
+          type: string
+          description: "Human-readable error message"
+          example: "Invalid request parameters"
+        details:
+          type: object
+          description: "Additional error details"
+        timestamp:
+          type: string
+          format: date-time
+          description: "Error timestamp"
+        requestId:
+          type: string
+          description: "Request correlation ID"
+
+    SuccessResponse:
+      type: object
+      required: ["success", "message"]
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Operation completed successfully"
+        data:
+          type: object
+          description: "Response data"
+        timestamp:
+          type: string
+          format: date-time
+
+    PaginationMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+          minimum: 1
+          example: 1
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          example: 20
+        total:
+          type: integer
+          example: 150
+        totalPages:
+          type: integer
+          example: 8
+        hasNext:
+          type: boolean
+          example: true
+        hasPrev:
+          type: boolean
+          example: false
+
+    # Authentication Schemas
+    LoginRequest:
+      type: object
+      required: ["email", "password"]
+      properties:
+        email:
+          type: string
+          format: email
+          description: "User's email address"
+          example: "user@company.com"
+        password:
+          type: string
+          description: "User's password"
+          example: "SecurePassword123!"
+
+    LoginResponse:
+      type: object
+      required: ["success", "data"]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          required: ["accessToken", "refreshToken", "user", "accounts"]
+          properties:
+            accessToken:
+              type: string
+              description: "JWT access token"
+              example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+            refreshToken:
+              type: string
+              description: "JWT refresh token"
+              example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+            expiresIn:
+              type: integer
+              description: "Token expiration in seconds"
+              example: 3600
+            user:
+              $ref: '#/components/schemas/User'
+            accounts:
+              type: array
+              items:
+                $ref: '#/components/schemas/Account'
+
+    RegisterRequest:
+      type: object
+      required: ["email", "password", "name"]
+      properties:
+        email:
+          type: string
+          format: email
+          description: "User's email address (must be unique)"
+          example: "user@company.com"
+        password:
+          type: string
+          minLength: 6
+          description: "User's password (minimum 6 characters)"
+          example: "SecurePassword123!"
+        name:
+          type: string
+          minLength: 2
+          description: "User's full name"
+          example: "John Doe"
+        company:
+          type: string
+          description: "Company name (optional)"
+          example: "Acme Corp"
+
+    # User Schemas
+    User:
+      type: object
+      required: ["userId", "email", "name", "status", "createdAt"]
+      properties:
+        userId:
+          type: string
+          description: "Unique user identifier"
+          example: "usr-12345678"
+        email:
+          type: string
+          format: email
+          description: "User's email address"
+          example: "user@company.com"
+        name:
+          type: string
+          description: "User's full name"
+          example: "John Doe"
+        status:
+          type: string
+          enum: ["active", "suspended", "deleted"]
+          description: "User account status"
+          example: "active"
+        currentAccountId:
+          type: string
+          description: "Currently active account context"
+          example: "acc-12345678"
+        createdAt:
+          type: string
+          format: date-time
+          description: "Account creation timestamp"
+        updatedAt:
+          type: string
+          format: date-time
+          description: "Last profile update timestamp"
+        preferences:
+          type: object
+          description: "User preferences and settings"
+        profile:
+          type: object
+          description: "Extended profile information"
+
+    # Account Schemas
+    Account:
+      type: object
+      required: ["accountId", "name", "plan", "status", "createdAt"]
+      properties:
+        accountId:
+          type: string
+          description: "Unique account identifier"
+          example: "acc-12345678"
+        parentAccountId:
+          type: string
+          nullable: true
+          description: "Parent account in hierarchy"
+          example: "acc-87654321"
+        ownerUserId:
+          type: string
+          description: "Account owner user ID"
+          example: "usr-12345678"
+        name:
+          type: string
+          description: "Account display name"
+          example: "Acme Corp Main"
+        company:
+          type: string
+          description: "Company name"
+          example: "Acme Corporation"
+        accountPath:
+          type: string
+          description: "Hierarchical path"
+          example: "/root/subsidiary/division/"
+        level:
+          type: integer
+          description: "Hierarchy depth level"
+          example: 2
+        plan:
+          type: string
+          enum: ["trial", "subscription", "enterprise"]
+          description: "Account plan type"
+          example: "enterprise"
+        status:
+          type: string
+          enum: ["active", "suspended", "deleted"]
+          description: "Account status"
+          example: "active"
+        createdAt:
+          type: string
+          format: date-time
+        settings:
+          type: object
+          description: "Account configuration settings"
+        limits:
+          type: object
+          description: "Usage limits and quotas"
+
+    # OAuth Schemas
+    OAuthStartResponse:
+      type: object
+      required: ["success", "data"]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          required: ["authUrl", "state"]
+          properties:
+            authUrl:
+              type: string
+              format: uri
+              description: "Platform OAuth authorization URL"
+              example: "https://signin.infusionsoft.com/app/oauth/authorize?..."
+            state:
+              type: string
+              description: "OAuth state parameter for CSRF protection"
+              example: "uuid-state-12345678"
+            redirectUri:
+              type: string
+              format: uri
+              description: "OAuth callback URL"
+              example: "https://api.listbackup.ai/integrations/oauth/callback/keap"
+
+    Connection:
+      type: object
+      required: ["connectionId", "accountId", "platformId", "name", "status", "createdAt"]
+      properties:
+        connectionId:
+          type: string
+          description: "Unique connection identifier"
+          example: "conn-12345678"
+        accountId:
+          type: string
+          description: "Account that owns the connection"
+          example: "acc-12345678"
+        userId:
+          type: string
+          description: "User who created the connection"
+          example: "usr-12345678"
+        platformId:
+          type: string
+          description: "Connected platform identifier"
+          example: "keap"
+        name:
+          type: string
+          description: "User-defined connection name"
+          example: "Acme Corp Keap"
+        status:
+          type: string
+          enum: ["active", "expired", "error", "revoked"]
+          description: "Connection status"
+          example: "active"
+        authType:
+          type: string
+          enum: ["oauth", "api_key", "manual"]
+          description: "Authentication method"
+          example: "oauth"
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: "Token expiration timestamp"
+        lastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: "Last successful API call"
+        createdAt:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          description: "Connection-specific metadata"
+
+    # Source Schemas
+    Source:
+      type: object
+      required: ["sourceId", "accountId", "connectionId", "name", "status", "createdAt"]
+      properties:
+        sourceId:
+          type: string
+          description: "Unique source identifier"
+          example: "src-12345678"
+        accountId:
+          type: string
+          description: "Account context"
+          example: "acc-12345678"
+        userId:
+          type: string
+          description: "Source creator"
+          example: "usr-12345678"
+        connectionId:
+          type: string
+          description: "Platform connection"
+          example: "conn-12345678"
+        platformSourceId:
+          type: string
+          description: "Platform data type identifier"
+          example: "psrc-contacts"
+        groupId:
+          type: string
+          nullable: true
+          description: "Source group membership"
+          example: "grp-12345678"
+        name:
+          type: string
+          description: "User-defined source name"
+          example: "Keap Contacts"
+        status:
+          type: string
+          enum: ["active", "paused", "error", "deleted"]
+          description: "Source status"
+          example: "active"
+        lastSyncAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: "Last successful sync"
+        nextSyncAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: "Next scheduled sync"
+        createdAt:
+          type: string
+          format: date-time
+        settings:
+          type: object
+          description: "Sync configuration"
+        metadata:
+          type: object
+          description: "Source-specific metadata"
+
+  responses:
+    UnauthorizedError:
+      description: "Authentication required"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "UNAUTHORIZED"
+            message: "Valid authentication token required"
+            timestamp: "2025-06-20T14:30:00Z"
+
+    ForbiddenError:
+      description: "Access forbidden"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "FORBIDDEN"
+            message: "Insufficient permissions for this operation"
+            timestamp: "2025-06-20T14:30:00Z"
+
+    NotFoundError:
+      description: "Resource not found"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "NOT_FOUND"
+            message: "Requested resource not found"
+            timestamp: "2025-06-20T14:30:00Z"
+
+    ValidationError:
+      description: "Invalid request data"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: "VALIDATION_ERROR"
+            message: "Invalid request parameters"
+            details:
+              field: "email"
+              message: "Invalid email format"
+            timestamp: "2025-06-20T14:30:00Z"
+
+paths:
+  # Authentication Endpoints
+  /auth/login:
+    post:
+      tags: ["Authentication"]
+      summary: "User login"
+      description: "Authenticate user with email/password and return JWT tokens"
+      operationId: "loginUser"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: "Login successful"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          description: "Invalid credentials"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/register:
+    post:
+      tags: ["Authentication"]
+      summary: "User registration"
+      description: "Register new user account with email/password"
+      operationId: "registerUser"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: "Registration successful"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: "Email already exists"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/refresh:
+    post:
+      tags: ["Authentication"]
+      summary: "Refresh access token"
+      description: "Exchange refresh token for new access token"
+      operationId: "refreshToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["refreshToken"]
+              properties:
+                refreshToken:
+                  type: string
+                  description: "Valid refresh token"
+      responses:
+        '200':
+          description: "Token refresh successful"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      accessToken:
+                        type: string
+                      expiresIn:
+                        type: integer
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /auth/logout:
+    post:
+      tags: ["Authentication"]
+      summary: "User logout"
+      description: "Invalidate user session and tokens"
+      operationId: "logoutUser"
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: "Logout successful"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /auth/status:
+    get:
+      tags: ["Authentication"]
+      summary: "Check authentication status"
+      description: "Verify if user is authenticated and return user info"
+      operationId: "getAuthStatus"
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: "Authentication status"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      authenticated:
+                        type: boolean
+                        example: true
+                      user:
+                        $ref: '#/components/schemas/User'
+                      currentAccount:
+                        $ref: '#/components/schemas/Account'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /auth/get-profile:
+    get:
+      tags: ["Authentication"]
+      summary: "Get user profile"
+      description: "Retrieve authenticated user's profile information"
+      operationId: "getUserProfile"
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: "User profile retrieved"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /auth/get-available-accounts:
+    get:
+      tags: ["Authentication"]
+      summary: "Get available accounts"
+      description: "Retrieve list of accounts user has access to"
+      operationId: "getAvailableAccounts"
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: "Available accounts retrieved"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Account'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # OAuth Integration Endpoints
+  /integrations/oauth/start/{platform}:
+    post:
+      tags: ["OAuth"]
+      summary: "Initiate OAuth flow"
+      description: |
+        Start OAuth 2.0 authorization flow for a specific platform.
+        
+        **Supported Platforms:**
+        - `keap` - Keap (Infusionsoft) CRM
+        - `stripe` - Stripe Connect payments
+        - `gohighlevel` - GoHighLevel marketing automation
+        - `hubspot` - HubSpot CRM
+        - `google` - Google Workspace
+        - `dropbox` - Dropbox file storage
+        - `box` - Box enterprise storage
+        - `quickbooks` - QuickBooks accounting
+        - `shopify` - Shopify e-commerce
+      operationId: "startOAuthFlow"
+      security:
+        - BearerAuth: []
+        - AccountContext: []
+      parameters:
+        - $ref: '#/components/parameters/PlatformParam'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                connectionName:
+                  type: string
+                  description: "User-defined name for the connection"
+                  example: "My Keap Account"
+                additionalParams:
+                  type: object
+                  description: "Platform-specific parameters"
+      responses:
+        '200':
+          description: "OAuth flow initiated"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthStartResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+  /integrations/oauth/callback/{platform}:
+    get:
+      tags: ["OAuth"]
+      summary: "OAuth callback handler"
+      description: |
+        Handle OAuth 2.0 callback from platform after user authorization.
+        This endpoint is called by the OAuth provider after user consent.
+      operationId: "handleOAuthCallback"
+      parameters:
+        - $ref: '#/components/parameters/PlatformParam'
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+          description: "Authorization code from OAuth provider"
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+          description: "OAuth state parameter for CSRF protection"
+        - name: error
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Error code if authorization failed"
+      responses:
+        '302':
+          description: "Redirect to success/error page"
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri
+              description: "Redirect URL with status"
+        '400':
+          $ref: '#/components/responses/ValidationError'
+
+  # Connections Endpoints
+  /connections:
+    get:
+      tags: ["Connections"]
+      summary: "List connections"
+      description: "Retrieve list of platform connections for current account"
+      operationId: "listConnections"
+      security:
+        - BearerAuth: []
+        - AccountContext: []
+      parameters:
+        - name: platform
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Filter by platform"
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["active", "expired", "error", "revoked"]
+          description: "Filter by connection status"
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          description: "Page number"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: "Items per page"
+      responses:
+        '200':
+          description: "Connections retrieved"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Connection'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+    post:
+      tags: ["Connections"]
+      summary: "Create connection"
+      description: "Create a new platform connection (manual/API key)"
+      operationId: "createConnection"
+      security:
+        - BearerAuth: []
+        - AccountContext: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["platformId", "name", "authType"]
+              properties:
+                platformId:
+                  type: string
+                  description: "Platform identifier"
+                  example: "keap"
+                name:
+                  type: string
+                  description: "Connection name"
+                  example: "My Keap Connection"
+                authType:
+                  type: string
+                  enum: ["api_key", "manual"]
+                  description: "Authentication method"
+                  example: "api_key"
+                credentials:
+                  type: object
+                  description: "Platform-specific credentials"
+                settings:
+                  type: object
+                  description: "Connection configuration"
+      responses:
+        '201':
+          description: "Connection created"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Connection'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+  /connections/{connectionId}:
+    get:
+      tags: ["Connections"]
+      summary: "Get connection"
+      description: "Retrieve specific connection details"
+      operationId: "getConnection"
+      security:
+        - BearerAuth: []
+        - AccountContext: []
+      parameters:
+        - $ref: '#/components/parameters/ConnectionIdParam'
+      responses:
+        '200':
+          description: "Connection retrieved"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Connection'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    put:
+      tags: ["Connections"]
+      summary: "Update connection"
+      description: "Update connection settings and configuration"
+      operationId: "updateConnection"
+      security:
+        - BearerAuth: []
+        - AccountContext: []
+      parameters:
+        - $ref: '#/components/parameters/ConnectionIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: "Connection name"
+                settings:
+                  type: object
+                  description: "Connection configuration"
+                status:
+                  type: string
+                  enum: ["active", "paused"]
+                  description: "Connection status"
+      responses:
+        '200':
+          description: "Connection updated"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Connection'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    delete:
+      tags: ["Connections"]
+      summary: "Delete connection"
+      description: "Delete connection and revoke platform access"
+      operationId: "deleteConnection"
+      security:
+        - BearerAuth: []
+        - AccountContext: []
+      parameters:
+        - $ref: '#/components/parameters/ConnectionIdParam'
+      responses:
+        '200':
+          description: "Connection deleted"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /connections/{connectionId}/test:
+    post:
+      tags: ["Connections"]
+      summary: "Test connection"
+      description: "Test platform connection and validate credentials"
+      operationId: "testConnection"
+      security:
+        - BearerAuth: []
+        - AccountContext: []
+      parameters:
+        - $ref: '#/components/parameters/ConnectionIdParam'
+      responses:
+        '200':
+          description: "Connection test results"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        enum: ["success", "error"]
+                        example: "success"
+                      message:
+                        type: string
+                        example: "Connection test successful"
+                      details:
+                        type: object
+                        description: "Test result details"
+                      latency:
+                        type: integer
+                        description: "Response time in milliseconds"
+                        example: 245
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  # Sources Endpoints
+  /sources:
+    get:
+      tags: ["Sources"]
+      summary: "List sources"
+      description: "Retrieve list of data sources for current account"
+      operationId: "listSources"
+      security:
+        - BearerAuth: []
+        - AccountContext: []
+      parameters:
+        - name: connectionId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Filter by connection"
+        - name: groupId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Filter by source group"
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["active", "paused", "error", "deleted"]
+          description: "Filter by source status"
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: "Sources retrieved"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Source'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+    post:
+      tags: ["Sources"]
+      summary: "Create source"
+      description: "Create a new data source"
+      operationId: "createSource"
+      security:
+        - BearerAuth: []
+        - AccountContext: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["connectionId", "platformSourceId", "name"]
+              properties:
+                connectionId:
+                  type: string
+                  description: "Platform connection ID"
+                  example: "conn-12345678"
+                platformSourceId:
+                  type: string
+                  description: "Platform data type ID"
+                  example: "psrc-contacts"
+                name:
+                  type: string
+                  description: "Source name"
+                  example: "Keap Contacts"
+                groupId:
+                  type: string
+                  nullable: true
+                  description: "Source group ID"
+                  example: "grp-12345678"
+                settings:
+                  type: object
+                  description: "Sync configuration"
+      responses:
+        '201':
+          description: "Source created"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Source'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+  # System Endpoints
+  /status:
+    get:
+      tags: ["System"]
+      summary: "System status"
+      description: "Get overall system health and status"
+      operationId: "getSystemStatus"
+      responses:
+        '200':
+          description: "System status"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        enum: ["healthy", "degraded", "down"]
+                        example: "healthy"
+                      version:
+                        type: string
+                        example: "2.0.0"
+                      timestamp:
+                        type: string
+                        format: date-time
+                      services:
+                        type: object
+                        description: "Individual service status"
+                      uptime:
+                        type: integer
+                        description: "System uptime in seconds"
+
+  /system/health:
+    get:
+      tags: ["System"]
+      summary: "Health check"
+      description: "Detailed health check for all system components"
+      operationId: "getHealthCheck"
+      responses:
+        '200':
+          description: "Health check results"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      overall:
+                        type: string
+                        enum: ["healthy", "degraded", "down"]
+                        example: "healthy"
+                      services:
+                        type: object
+                        additionalProperties:
+                          type: object
+                          properties:
+                            status:
+                              type: string
+                              enum: ["healthy", "degraded", "down"]
+                            latency:
+                              type: integer
+                              description: "Response time in milliseconds"
+                            lastCheck:
+                              type: string
+                              format: date-time
+                      infrastructure:
+                        type: object
+                        description: "AWS infrastructure health"
+
+  /system/openapi-export:
+    get:
+      tags: ["System"]
+      summary: "Export OpenAPI specification"
+      description: "Generate and export current OpenAPI specification"
+      operationId: "exportOpenAPI"
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: "OpenAPI specification"
+          content:
+            application/json:
+              schema:
+                type: object
+                description: "Complete OpenAPI 3.0 specification"
+            application/yaml:
+              schema:
+                type: string
+                description: "Complete OpenAPI 3.0 specification in YAML"
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+security:
+  - BearerAuth: []
+  - AccountContext: []
