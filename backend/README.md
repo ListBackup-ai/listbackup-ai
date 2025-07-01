@@ -1,305 +1,319 @@
-# ListBackup.ai v2 Backend
+# ListBackup.ai Backend
 
 Modern, scalable backend architecture for ListBackup.ai using AWS Serverless technologies.
 
-## 🏗️ Architecture
+## 🏗️ Architecture Overview
 
-### Language Separation
-- **Node.js**: API endpoints, authentication, real-time features
-- **Python**: Data processing, backup operations, analytics, AI/ML
+```mermaid
+graph TB
+    subgraph "Language Stack"
+        GO[Go Services<br/>High Performance]
+        NODE[Node.js Services<br/>Integrations]
+    end
+    
+    subgraph "Infrastructure Layer"
+        subgraph "Phase 2 - Infrastructure"
+            CERT[Certificates]
+            DDB[DynamoDB]
+            SQS[SQS Queues]
+            S3[S3 Storage]
+            EB[EventBridge]
+            COG[Cognito]
+        end
+    end
+    
+    subgraph "Service Layer"
+        subgraph "Phase 3 - Gateway"
+            GW[API Gateway]
+        end
+        
+        subgraph "Phase 4-6 - Core APIs"
+            AUTH[Auth Service]
+            USERS[Users Service]
+            ACC[Accounts Service]
+        end
+        
+        subgraph "Phase 7-11 - Business Logic"
+            PLAT[Platforms Service]
+            CONN[Connections Service]
+            SRC[Sources Service]
+            JOBS[Jobs Service]
+        end
+    end
+    
+    GO --> AUTH
+    GO --> USERS
+    GO --> ACC
+    NODE --> CONN
+    NODE --> SRC
+    
+    CERT --> GW
+    GW --> AUTH
+    AUTH --> COG
+    USERS --> DDB
+    ACC --> DDB
+    PLAT --> DDB
+    CONN --> S3
+    SRC --> SQS
+    JOBS --> EB
+    
+    style GO fill:#b3e5fc
+    style NODE fill:#c8e6c9
+    style GW fill:#ffccbc
+```
 
-### Service Structure
+## 📁 Project Structure
+
 ```
 backend/
-├── nodejs/                 # Node.js API services
-│   ├── serverless-core.yml    # DynamoDB tables, S3, SQS, EventBridge
-│   ├── serverless-auth.yml    # Authentication & user management
-│   ├── serverless-api.yml     # Main API endpoints
-│   └── serverless-analytics.yml # Analytics & reporting
-├── python/                 # Python processing services
-│   ├── serverless-backup-processors.yml  # Backup & file processing
-│   └── serverless-data-analysis.yml      # Data insights & AI
-├── shared/                 # Shared configurations
-│   ├── configs/            # API and service configs
-│   └── schemas/            # TypeScript type definitions
-└── scripts/                # Deployment automation
-    └── deploy.sh           # Unified deployment script
+├── docs/                      # Comprehensive documentation
+│   ├── architecture/         # System design docs
+│   ├── infrastructure/       # AWS resource docs
+│   ├── api/                  # API documentation
+│   ├── services/             # Service-specific docs
+│   ├── deployment/           # Deployment guides
+│   └── phases/               # Migration phase docs
+├── golang/                    # Go services
+│   ├── services/             # Serverless services
+│   │   ├── infrastructure/   # AWS infrastructure
+│   │   ├── core/            # Core resources
+│   │   └── api/             # API services
+│   ├── internal/            # Shared Go code
+│   └── cmd/                 # Lambda handlers
+├── nodejs-first-attempt/     # Legacy Node.js code
+├── python/                   # Python processors
+├── scripts/                  # Deployment scripts
+└── shared/                   # Shared configs
 ```
 
-## 🗄️ Data Architecture
-
-### DynamoDB Tables (prefix: `listbackup-{stage}-`)
-- **users**: User accounts and authentication
-- **accounts**: Account settings and billing
-- **sources**: Connected data sources (Google Drive, Dropbox, etc.)
-- **jobs**: Backup job definitions and schedules
-- **runs**: Backup execution instances
-- **files**: File metadata and indexing
-- **activity**: Audit logs and system events
-- **oauth-states**: OAuth flow state management
-- **api-keys**: Integration API keys
-- **analytics-aggregates**: Pre-computed analytics data
-- **reports**: Generated reports
-
-### Storage
-- **S3 Bucket**: `listbackup-data-{stage}` for backed up files
-- **Versioning**: Enabled with intelligent tiering
-- **Encryption**: AES-256 server-side encryption
-
-### Messaging
-- **Job Queue**: `listbackup-job-queue-{stage}` for backup orchestration
-- **Data Queue**: `listbackup-data-queue-{stage}` for file processing
-- **EventBridge**: `listbackup-events-{stage}` for real-time events
-
-## 🔑 Environment Variables
-
-### Required SSM Parameters
-```bash
-/listbackup/jwt-secret           # JWT signing key
-/listbackup/jwt-refresh-secret   # JWT refresh token key
-/listbackup/cors-origin          # Frontend origin URL
-/listbackup/ses-from-email       # Email sender address
-/listbackup/openai-api-key       # OpenAI API key (optional)
-```
-
-### Auto-generated by Cognito
-```bash
-/listbackup/cognito-user-pool-id # Created by auth service
-/listbackup/cognito-client-id    # Created by auth service
-```
-
-## 🚀 Deployment
+## 🚀 Quick Start
 
 ### Prerequisites
+
 ```bash
-# Install dependencies
-npm install -g serverless
-pip install serverless-python-requirements
+# Required tools
+- AWS CLI v2
+- Go 1.21+
+- Node.js 20+
+- Serverless Framework v4
+- Make
 
-# Configure AWS credentials
-aws configure
-
-# Verify access
-aws sts get-caller-identity
+# AWS Configuration
+aws configure --profile listbackup.ai
 ```
-
-### Deploy All Services
-```bash
-# Main environment
-./scripts/deploy.sh main all
-
-# Production environment
-./scripts/deploy.sh prod all
-```
-
-### Deploy Specific Services
-```bash
-# Deploy only Node.js services
-./scripts/deploy.sh main nodejs
-
-# Deploy only Python services
-./scripts/deploy.sh main python
-
-# Deploy only core infrastructure
-./scripts/deploy.sh main core
-```
-
-## 🔧 Development
 
 ### Local Development
-```bash
-# Start Node.js services locally
-cd nodejs
-npm install
-serverless offline --config serverless-api.yml
 
-# Python development
-cd python
-pip install -r requirements.txt
-# Use serverless-offline-python or deploy to AWS for testing
+```bash
+# Clone repository
+git clone https://github.com/ListBackup-ai/listbackup-ai.git
+cd listbackup-ai/backend
+
+# Install dependencies
+cd golang
+go mod download
+npm install -g serverless
+
+# Deploy to development
+serverless deploy --stage dev
 ```
 
-### Adding New Endpoints
-1. Add function definition to appropriate `serverless-*.yml`
-2. Create handler file in `src/handlers/`
-3. Update TypeScript types in `shared/schemas/`
-4. Deploy with `./scripts/deploy.sh main [service]`
+## 📋 Service Architecture
 
-## 📊 Monitoring
+### Infrastructure Services (Phase 2) ✅
 
-### CloudWatch Dashboards
-- `listbackup-v2-system-{stage}`: System-wide metrics
-- `listbackup-backup-processors-{stage}-backup-performance`: Backup performance
+| Service | Purpose | Status |
+|---------|---------|--------|
+| infrastructure-certificates | SSL/TLS certificates | ✅ Complete |
+| infrastructure-dynamodb | 17 DynamoDB tables | ✅ Complete |
+| infrastructure-sqs | 6 FIFO queues + DLQs | ✅ Complete |
+| infrastructure-s3 | Object storage | ✅ Complete |
+| infrastructure-eventbridge | Event bus | ✅ Complete |
+| infrastructure-cognito | Authentication | ✅ Complete |
 
-### Key Metrics
-- Lambda function duration and errors
-- DynamoDB read/write capacity
-- SQS queue depth and processing times
-- S3 storage usage and costs
+### API Services (Phase 3-6) ✅
 
-### Alarms
-- High error rates (>5%)
-- Function timeouts
-- Queue backlogs
-- Database throttling
+| Service | Purpose | Status |
+|---------|---------|--------|
+| api/gateway | API Gateway configuration | ✅ Complete |
+| api/auth | Authentication & authorization | ✅ Complete |
+| api/users | User management | ✅ Complete |
+| api/accounts | Account hierarchy | ✅ Complete |
+
+### Business Services (Phase 7-11) 🚧
+
+| Service | Purpose | Status |
+|---------|---------|--------|
+| api/platforms | Platform registry | 🚧 In Progress |
+| api/connections | OAuth connections | 📋 Planned |
+| api/sources | Data sources | 📋 Planned |
+| api/jobs | Job processing | 📋 Planned |
+
+## 🔧 Development Workflow
+
+```mermaid
+sequenceDiagram
+    participant Dev as Developer
+    participant Local as Local Env
+    participant AWS as AWS Dev
+    participant PR as Pull Request
+    participant Staging as Staging
+    participant Prod as Production
+    
+    Dev->>Local: Write code
+    Local->>Local: Run tests
+    Dev->>AWS: Deploy to dev
+    AWS-->>Dev: Test in cloud
+    Dev->>PR: Create PR
+    PR->>PR: Run CI/CD
+    PR->>Staging: Auto-deploy
+    Staging-->>Dev: Review
+    Dev->>Prod: Merge to main
+    Prod-->>Prod: Deploy
+```
+
+## 📊 Database Schema
+
+```mermaid
+erDiagram
+    Users ||--o{ UserAccounts : has
+    Accounts ||--o{ UserAccounts : contains
+    Accounts ||--o{ Sources : owns
+    Platforms ||--o{ PlatformConnections : provides
+    PlatformConnections ||--o{ Sources : enables
+    Sources ||--o{ Jobs : triggers
+    Jobs ||--o{ JobLogs : generates
+    
+    Users {
+        string userId PK
+        string email UK
+        string cognitoUserId UK
+        string name
+    }
+    
+    Accounts {
+        string accountId PK
+        string parentAccountId FK
+        string ownerUserId FK
+        string accountType
+    }
+    
+    Sources {
+        string sourceId PK
+        string accountId FK
+        string connectionId FK
+        string config
+    }
+    
+    Jobs {
+        string jobId PK
+        string sourceId FK
+        string status
+        string schedule
+    }
+```
 
 ## 🔒 Security
 
-### Authentication
-- JWT tokens with secure secrets
-- Refresh token rotation
-- MFA support via Cognito
-- Password policy enforcement
+### Authentication Flow
 
-### Authorization
-- Role-based access control
-- Resource-level permissions
-- API key management for integrations
+```mermaid
+graph LR
+    USER[User] --> LOGIN[Login]
+    LOGIN --> COGNITO[AWS Cognito]
+    COGNITO --> JWT[JWT Token]
+    JWT --> API[API Request]
+    API --> LAMBDA[Lambda Authorizer]
+    LAMBDA --> VALIDATE[Validate Token]
+    VALIDATE --> ALLOW[Allow Request]
+    VALIDATE --> DENY[Deny Request]
+    
+    style ALLOW fill:#c8e6c9
+    style DENY fill:#ffcdd2
+```
 
-### Data Protection
-- Encryption at rest (S3 + DynamoDB)
-- Encryption in transit (HTTPS/TLS)
-- VPC isolation for sensitive operations
-- Regular security audits
+### Security Layers
 
-## 🔄 Data Flow
+1. **Network**: CloudFront, WAF, API Gateway
+2. **Authentication**: AWS Cognito, JWT tokens
+3. **Authorization**: Custom Lambda authorizer, RBAC
+4. **Encryption**: TLS 1.3, AES-256 at rest
+5. **Secrets**: AWS Secrets Manager, KMS
 
-### Backup Process
-1. **API Request** → Node.js API validates and queues job
-2. **Job Queue** → Python orchestrator processes job
-3. **Source Integration** → Python processors fetch data from sources
-4. **File Processing** → Compression, encryption, metadata extraction
-5. **Storage** → Upload to S3 with versioning
-6. **Indexing** → File metadata stored in DynamoDB
-7. **Events** → Real-time updates via EventBridge
-8. **Analytics** → Background aggregation and insights
+## 🚢 Deployment
 
-### Real-time Updates
-- EventBridge publishes events for all major operations
-- WebSocket connections for live progress updates
-- Activity feed for audit trails
+### Using Serverless Compose
+
+```bash
+# Deploy all services
+cd backend/golang
+serverless deploy --stage production
+
+# Deploy specific service
+cd backend/golang/services/api/users
+serverless deploy --stage production
+
+# Remove deployment
+serverless remove --stage production
+```
+
+### Environment Variables
+
+Required SSM parameters:
+```
+/listbackup/jwt-secret
+/listbackup/cors-origin
+/listbackup/ses-from-email
+```
+
+## 📈 Monitoring
+
+### CloudWatch Dashboards
+
+- System Overview: Lambda metrics, API Gateway stats
+- Database Performance: DynamoDB metrics
+- Queue Processing: SQS queue depths
+- Error Tracking: Lambda errors, API 4xx/5xx
+
+### Alerts
+
+- High error rate (>5%)
+- Lambda timeout
+- DynamoDB throttling
+- Queue backup (>1000 messages)
 
 ## 🧪 Testing
 
-### Unit Tests
 ```bash
-# Node.js
-cd nodejs
-npm test
+# Unit tests
+cd golang
+go test ./...
 
-# Python
-cd python
-pytest
+# Integration tests
+cd golang/services/api/users
+go test -tags=integration
+
+# Load testing
+artillery run tests/load/api-stress.yml
 ```
 
-### Integration Tests
-```bash
-# Deploy to test environment
-./scripts/deploy.sh test all
+## 📚 Documentation
 
-# Run integration test suite
-npm run test:integration
-```
+Comprehensive documentation available in `/backend/docs/`:
 
-## 📝 API Documentation
+- [Architecture Overview](./docs/architecture/infrastructure-overview.md)
+- [API Documentation](./docs/api/overview.md)
+- [Deployment Guide](./docs/deployment/deployment-guide.md)
+- [Development Setup](./docs/development/setup.md)
 
-### Authentication Endpoints
-- `POST /auth/login` - User login
-- `POST /auth/register` - User registration  
-- `POST /auth/refresh` - Token refresh
-- `POST /auth/logout` - User logout
+## 🤝 Contributing
 
-### Data Source Management
-- `GET /sources` - List connected sources
-- `POST /sources` - Connect new source
-- `PUT /sources/{id}` - Update source settings
-- `DELETE /sources/{id}` - Disconnect source
+1. Create feature branch from `develop`
+2. Write tests for new functionality
+3. Update documentation
+4. Submit pull request
+5. Ensure CI/CD passes
 
-### Backup Management
-- `GET /jobs` - List backup jobs
-- `POST /jobs` - Create backup job
-- `POST /jobs/{id}/run` - Run backup manually
-- `GET /runs/{id}` - Get backup run status
+## 📄 License
 
-### Data Browsing
-- `GET /data/files` - Browse backed up files
-- `POST /data/search` - Search files
-- `POST /data/download` - Download files
-
-### Analytics
-- `GET /analytics/overview` - Account overview
-- `GET /analytics/storage` - Storage analytics
-- `POST /reports/generate` - Generate reports
-
-## 🆘 Troubleshooting
-
-### Common Issues
-
-**Deployment Fails**
-```bash
-# Check AWS credentials
-aws sts get-caller-identity
-
-# Verify Serverless installation
-serverless --version
-
-# Check CloudFormation limits
-aws cloudformation describe-account-attributes
-```
-
-**Function Timeouts**
-- Increase timeout in serverless.yml
-- Optimize code for better performance
-- Consider breaking into smaller functions
-
-**DynamoDB Throttling**
-- Check CloudWatch metrics
-- Consider on-demand billing mode
-- Optimize query patterns
-
-**S3 Access Issues**
-- Verify bucket policies
-- Check IAM permissions
-- Ensure bucket exists in correct region
-
-### Logs and Debugging
-```bash
-# View function logs
-serverless logs -f functionName --stage main
-
-# Real-time log streaming
-aws logs tail /aws/lambda/listbackup-api-main-getSources --follow
-
-# CloudWatch Insights queries
-aws logs start-query --log-group-name /aws/lambda/listbackup-api-main-getSources
-```
-
-## 📈 Performance Optimization
-
-### Best Practices
-- Use Lambda provisioned concurrency for critical functions
-- Implement connection pooling for database access
-- Cache frequently accessed data
-- Use S3 Transfer Acceleration for large files
-- Optimize DynamoDB partition keys
-
-### Cost Optimization
-- Use S3 Intelligent Tiering
-- Set appropriate DynamoDB capacity modes
-- Monitor and optimize Lambda memory allocation
-- Use CloudWatch cost monitoring
-
-## 🔮 Future Enhancements
-
-### Planned Features
-- Real-time collaboration on backups
-- Advanced AI-powered insights
-- Multi-region disaster recovery
-- Enhanced security scanning
-- Third-party integrations (GitHub, Notion, etc.)
-
-### Scalability Considerations
-- Auto-scaling Lambda concurrency
-- DynamoDB Global Tables for multi-region
-- CDN for file downloads
-- Event-driven architecture expansion
+Copyright © 2024 ListBackup.ai - All rights reserved

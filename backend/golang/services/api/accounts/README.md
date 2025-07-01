@@ -1,39 +1,42 @@
-# Accounts Service Documentation
+# Accounts Service
+
+The Accounts Service manages the hierarchical account structure for the ListBackup.ai platform, providing multi-tenant capabilities with parent-child account relationships.
 
 ## Overview
-The Accounts Service manages hierarchical account structures for ListBackup.ai v2. It provides endpoints for creating, managing, and organizing accounts with support for unlimited nesting depth, making it suitable for complex organizational structures like conglomerates, franchises, and multi-location businesses.
+
+This service handles all account-related operations including:
+- Account creation and management
+- Hierarchical account structures (parent/sub-accounts)
+- Account switching and context management
+- User-account relationships and permissions
+- Account settings and usage tracking
 
 ## Architecture
 
-### Service Dependencies
-- **Infrastructure Services**: Uses centralized DynamoDB tables, Cognito User Pool, and EventBridge
-- **API Gateway**: Integrates with the shared HTTP API and uses JWT authorizer
-- **Auth Service**: Relies on authentication context from JWT tokens
-- **Users Service**: Works with user-account relationships
+### Service Configuration
+- **Runtime**: AWS Lambda (provided.al2023, ARM64)
+- **Region**: us-west-2
+- **Memory**: 512MB
+- **Timeout**: 29 seconds
+- **Authentication**: AWS Cognito JWT
 
-### Key Features
-- Hierarchical account structures with unlimited nesting
-- Path-based hierarchy for efficient queries
-- Role-based access control per account
-- Data aggregation at any level
-- Cross-subsidiary reporting capabilities
-- Account switching for multi-account users
+### Dependencies
+- **DynamoDB Tables**:
+  - `Accounts`: Stores account information
+  - `UserAccounts`: Manages user-account relationships
+  - `Users`: User information
+  - `Sources`: Data sources (for deletion checks)
+  - `Activity`: Audit logging
 
-## Endpoints
+## API Endpoints
 
-All endpoints require authentication via JWT token in the Authorization header.
+### 1. List Accounts
+```
+GET /accounts
+Authorization: Bearer {JWT_TOKEN}
+```
 
-### GET /accounts
 Lists all accounts accessible to the authenticated user.
-
-**Headers:**
-```
-Authorization: Bearer <accessToken>
-```
-
-**Query Parameters:**
-- `includeHierarchy` (boolean): Include sub-accounts in response
-- `status` (string): Filter by account status (active, inactive, suspended)
 
 **Response:**
 ```json
@@ -42,39 +45,16 @@ Authorization: Bearer <accessToken>
   "data": {
     "accounts": [
       {
-        "accountId": "account:uuid",
-        "parentAccountId": null,
-        "name": "Acme Corporation",
-        "company": "Acme Corp",
-        "accountPath": "/account:uuid",
+        "accountId": "string",
+        "name": "string",
+        "company": "string",
+        "accountPath": "string",
         "level": 0,
-        "accountType": "conglomerate",
-        "status": "active",
-        "plan": "enterprise",
-        "userRole": "Owner",
-        "userPermissions": {
-          "canCreateSubAccounts": true,
-          "canInviteUsers": true,
-          "canManageIntegrations": true,
-          "canViewAllData": true,
-          "canManageBilling": true,
-          "canDeleteAccount": true,
-          "canModifySettings": true
-        },
-        "settings": {
-          "maxSources": 100,
-          "maxStorageGB": 1000,
-          "maxBackupJobs": 10000,
-          "retentionDays": 365,
-          "encryptionEnabled": true
-        },
-        "usage": {
-          "sourcesUsed": 45,
-          "storageUsedGB": 234.5,
-          "backupJobsUsed": 3456
-        },
-        "createdAt": "2025-01-01T00:00:00Z",
-        "updatedAt": "2025-01-01T00:00:00Z"
+        "parentAccountId": "string",
+        "plan": "string",
+        "status": "string",
+        "settings": {},
+        "usage": {}
       }
     ],
     "total": 1
@@ -82,404 +62,235 @@ Authorization: Bearer <accessToken>
 }
 ```
 
-### POST /accounts
+### 2. Create Account
+```
+POST /accounts
+Authorization: Bearer {JWT_TOKEN}
+Content-Type: application/json
+
+{
+  "name": "Account Name",
+  "company": "Company Name",
+  "plan": "free|starter|professional|enterprise"
+}
+```
+
 Creates a new top-level account.
 
-**Headers:**
+### 3. Get Account
 ```
-Authorization: Bearer <accessToken>
-Content-Type: application/json
+GET /accounts/{accountId}
+Authorization: Bearer {JWT_TOKEN}
 ```
 
-**Request Body:**
-```json
+Retrieves detailed information about a specific account.
+
+### 4. Update Account
+```
+PUT /accounts/{accountId}
+Authorization: Bearer {JWT_TOKEN}
+Content-Type: application/json
+
 {
-  "name": "New Division",
-  "company": "New Division Inc",
-  "accountType": "division",
-  "plan": "professional",
+  "name": "Updated Name",
+  "company": "Updated Company",
   "settings": {
-    "maxSources": 50,
-    "maxStorageGB": 500,
-    "maxBackupJobs": 5000,
-    "retentionDays": 180,
-    "encryptionEnabled": true
+    "maxSources": 10,
+    "maxStorageGB": 100,
+    "retentionDays": 30
   }
 }
 ```
 
-**Response:**
-```json
-{
-  "success": true,
-  "message": "Account created successfully",
-  "data": {
-    "accountId": "account:new-uuid",
-    "name": "New Division",
-    "company": "New Division Inc",
-    "accountPath": "/account:new-uuid",
-    "level": 0,
-    "createdAt": "2025-01-01T00:00:00Z"
-  }
-}
+Updates account information and settings.
+
+### 5. Delete Account
+```
+DELETE /accounts/{accountId}
+Authorization: Bearer {JWT_TOKEN}
 ```
 
-### GET /accounts/{accountId}
-Retrieves details for a specific account.
+Soft deletes an account. The account must not have:
+- Active sub-accounts
+- Active data sources
+- Be the user's current account
 
-**Headers:**
+### 6. Create Sub-Account
 ```
-Authorization: Bearer <accessToken>
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "accountId": "account:uuid",
-    "parentAccountId": null,
-    "name": "Acme Corporation",
-    "company": "Acme Corp",
-    "accountPath": "/account:uuid",
-    "level": 0,
-    "accountType": "conglomerate",
-    "status": "active",
-    "plan": "enterprise",
-    "settings": {
-      "maxSources": 100,
-      "maxStorageGB": 1000,
-      "maxBackupJobs": 10000,
-      "retentionDays": 365,
-      "encryptionEnabled": true
-    },
-    "usage": {
-      "sourcesUsed": 45,
-      "storageUsedGB": 234.5,
-      "backupJobsUsed": 3456
-    },
-    "aggregatedUsage": {
-      "totalSourcesUsed": 125,
-      "totalStorageUsedGB": 567.8,
-      "totalBackupJobsUsed": 8901,
-      "subAccountsCount": 15
-    },
-    "createdAt": "2025-01-01T00:00:00Z",
-    "updatedAt": "2025-01-01T00:00:00Z"
-  }
-}
-```
-
-### PUT /accounts/{accountId}
-Updates an existing account's details.
-
-**Headers:**
-```
-Authorization: Bearer <accessToken>
+POST /accounts/{parentAccountId}/sub-accounts
+Authorization: Bearer {JWT_TOKEN}
 Content-Type: application/json
-```
 
-**Request Body:**
-```json
 {
-  "name": "Updated Account Name",
-  "company": "Updated Company Name",
-  "plan": "enterprise",
-  "settings": {
-    "maxSources": 150,
-    "retentionDays": 730
-  }
+  "name": "Sub-Account Name",
+  "company": "Sub-Company Name"
 }
 ```
 
-**Response:**
-```json
-{
-  "success": true,
-  "message": "Account updated successfully",
-  "data": {
-    "accountId": "account:uuid",
-    "name": "Updated Account Name",
-    "updatedAt": "2025-01-01T00:00:00Z"
-  }
-}
+Creates a sub-account under the specified parent account.
+
+### 7. List Account Hierarchy
+```
+GET /accounts/{accountId}/hierarchy
+Authorization: Bearer {JWT_TOKEN}
 ```
 
-### DELETE /accounts/{accountId}
-Deletes an account and all associated data.
+Returns the complete account hierarchy starting from the specified account.
 
-**Headers:**
+### 8. Switch Account Context
 ```
-Authorization: Bearer <accessToken>
-```
-
-**Query Parameters:**
-- `cascade` (boolean): Delete all sub-accounts (default: false)
-- `transferTo` (string): Account ID to transfer resources to
-
-**Response:**
-```json
-{
-  "success": true,
-  "message": "Account deleted successfully",
-  "data": {
-    "deletedAccountId": "account:uuid",
-    "deletedSubAccounts": 5,
-    "transferredResources": {
-      "sources": 10,
-      "users": 3
-    }
-  }
-}
-```
-
-### POST /accounts/{parentAccountId}/sub-accounts (TODO)
-Creates a sub-account under a parent account.
-
-**Headers:**
-```
-Authorization: Bearer <accessToken>
+POST /accounts/switch
+Authorization: Bearer {JWT_TOKEN}
 Content-Type: application/json
-```
 
-**Request Body:**
-```json
 {
-  "name": "Regional Office",
-  "company": "Acme Regional",
-  "accountType": "location",
-  "inheritSettings": true
+  "accountId": "target-account-id"
 }
 ```
 
-### GET /accounts/{accountId}/hierarchy (TODO)
-Retrieves the full account hierarchy under a given account.
+Switches the user's active account context and returns updated authentication context.
 
-**Headers:**
-```
-Authorization: Bearer <accessToken>
-```
+## Account Model
 
-**Query Parameters:**
-- `depth` (number): Maximum depth to traverse
-- `includeUsage` (boolean): Include usage statistics
-
-### POST /accounts/switch (TODO)
-Switches the user's active account context.
-
-**Headers:**
-```
-Authorization: Bearer <accessToken>
-Content-Type: application/json
-```
-
-**Request Body:**
-```json
-{
-  "accountId": "account:uuid"
+### Account Structure
+```go
+type Account struct {
+    AccountID        string    // Unique identifier
+    ParentAccountID  string    // Parent account (null for root)
+    OwnerUserID      string    // Account owner
+    CreatedByUserID  string    // Creator
+    Name             string    // Account name
+    Company          string    // Company name
+    AccountPath      string    // Hierarchical path
+    Level            int       // Depth in hierarchy (0 = root)
+    Plan             string    // Subscription plan
+    Status           string    // active|suspended|deleted
+    BillingEmail     string    // Billing contact
+    Settings         Settings  // Account settings
+    Usage            Usage     // Usage metrics
 }
 ```
 
-## Configuration
-
-### Environment Variables
-The service inherits environment variables from the provider configuration:
-- `COGNITO_USER_POOL_ID`: Cognito User Pool ID
-- `COGNITO_CLIENT_ID`: Cognito App Client ID
-- `USERS_TABLE`: DynamoDB table for user records
-- `ACCOUNTS_TABLE`: DynamoDB table for account records
-- `USER_ACCOUNTS_TABLE`: DynamoDB table for user-account relationships
-- `SOURCES_TABLE`: DynamoDB table for sources (for cascade operations)
-- `ACTIVITY_TABLE`: DynamoDB table for activity tracking
-- `EVENT_BUS_NAME`: EventBridge bus for account events
-
-### IAM Permissions
-The service has specific permissions for:
-- DynamoDB operations on accounts, users, user-accounts, sources, and activity tables
-- EventBridge for publishing account events
-- CloudWatch Logs for monitoring
-- X-Ray for distributed tracing
-
-## Database Schema
-
-### Accounts Table
-```typescript
-{
-  accountId: string,           // "account:{uuid}"
-  parentAccountId?: string,    // Parent account ID for hierarchy
-  ownerUserId: string,        // User who owns the account
-  createdByUserId: string,
-  name: string,
-  company: string,
-  accountPath: string,        // Path for hierarchy queries (e.g., "/root/subsidiary/division/")
-  accountType: string,        // "conglomerate" | "subsidiary" | "division" | "location"
-  level: number,              // Depth in hierarchy (0 for root)
-  plan: string,               // "free" | "starter" | "professional" | "enterprise"
-  status: string,             // "active" | "inactive" | "suspended"
-  settings: {
-    maxSources: number,
-    maxStorageGB: number,
-    maxBackupJobs: number,
-    retentionDays: number,
-    encryptionEnabled: boolean,
-    allowSubAccounts: boolean,
-    dataIsolation: boolean
-  },
-  usage: {
-    sourcesUsed: number,
-    storageUsedGB: number,
-    backupJobsUsed: number
-  },
-  createdAt: timestamp,
-  updatedAt: timestamp,
-  deletedAt?: timestamp
+### Account Settings
+```go
+type Settings struct {
+    MaxSources        int       // Maximum data sources
+    MaxStorageGB      int       // Storage limit
+    MaxBackupJobs     int       // Concurrent backup jobs
+    RetentionDays     int       // Data retention period
+    EncryptionEnabled bool      // End-to-end encryption
+    TwoFactorRequired bool      // Enforce 2FA
+    AllowSubAccounts  bool      // Can create sub-accounts
+    MaxSubAccounts    int       // Sub-account limit
+    WhiteLabel        WhiteLabel // White-label settings
 }
 ```
 
-### Account Hierarchy Index
-- **GSI**: parentAccountId-level-index
-- **Partition Key**: parentAccountId
-- **Sort Key**: level
-- **Purpose**: Efficiently query sub-accounts
-
-### Account Path Index
-- **GSI**: accountPath-index
-- **Partition Key**: accountPath (begins_with queries)
-- **Purpose**: Query entire hierarchies
-
-## Error Handling
-
-### Common Error Responses
-- **400 Bad Request**: Invalid input or business rule violation
-- **401 Unauthorized**: Missing or invalid JWT token
-- **403 Forbidden**: User lacks permission for the operation
-- **404 Not Found**: Account not found
-- **409 Conflict**: Account name already exists
-- **500 Internal Server Error**: System errors
-
-### Business Rule Errors
-- `ACCOUNT_LIMIT_EXCEEDED`: Maximum accounts reached for plan
-- `HIERARCHY_TOO_DEEP`: Maximum nesting depth exceeded
-- `CIRCULAR_REFERENCE`: Would create circular hierarchy
-- `RESOURCES_EXIST`: Cannot delete account with active resources
-
-## Events Published
-
-The service publishes events to EventBridge for account lifecycle:
-
-### Account Created
-```json
-{
-  "Source": "listbackup.accounts",
-  "DetailType": "AccountCreated",
-  "Detail": {
-    "accountId": "account:uuid",
-    "parentAccountId": null,
-    "name": "New Account",
-    "accountType": "division",
-    "createdByUserId": "user:uuid",
-    "timestamp": "2025-01-01T00:00:00Z"
-  }
+### User Permissions
+```go
+type Permissions struct {
+    CanCreateSubAccounts   bool
+    CanInviteUsers         bool
+    CanManageIntegrations  bool
+    CanViewAllData         bool
+    CanManageBilling       bool
+    CanDeleteAccount       bool
+    CanModifySettings      bool
 }
 ```
 
-### Account Updated
-```json
-{
-  "Source": "listbackup.accounts",
-  "DetailType": "AccountUpdated",
-  "Detail": {
-    "accountId": "account:uuid",
-    "changes": {
-      "name": "New Name",
-      "plan": "enterprise"
-    },
-    "updatedByUserId": "user:uuid",
-    "timestamp": "2025-01-01T00:00:00Z"
-  }
-}
-```
+## Hierarchical Account Management
 
-### Account Deleted
-```json
-{
-  "Source": "listbackup.accounts",
-  "DetailType": "AccountDeleted",
-  "Detail": {
-    "accountId": "account:uuid",
-    "cascade": true,
-    "deletedSubAccounts": 5,
-    "deletedByUserId": "user:uuid",
-    "timestamp": "2025-01-01T00:00:00Z"
-  }
-}
-```
+### Account Paths
+Accounts use a path-based hierarchy system:
+- Root account: `/accountId/`
+- Sub-account: `/parentId/accountId/`
+- Nested sub-account: `/rootId/parentId/accountId/`
 
-## Deployment
+### Level System
+- Level 0: Root accounts
+- Level 1: Direct sub-accounts
+- Level 2+: Nested sub-accounts
 
-### Using Serverless Compose
-The accounts service is included in the serverless-compose.yml:
+### Permission Inheritance
+- Sub-accounts inherit certain settings from parent accounts
+- Users with access to parent accounts can access sub-accounts
+- Account owners have full permissions on their account and all sub-accounts
 
+## Building and Deployment
+
+### Build
 ```bash
-cd /Users/nickkulavic/Projects/listbackup.ai/listbackup-ai-v2/backend/golang/services
-serverless deploy --config serverless-compose.yml --stage main --aws-profile listbackup.ai
+./build.sh
 ```
 
-### Individual Deployment
-To deploy only the accounts service:
+This builds all Lambda function handlers and creates deployment packages.
+
+### Deploy to Development
 ```bash
-cd /Users/nickkulavic/Projects/listbackup.ai/listbackup-ai-v2/backend/golang/services
-# Build binaries first (when handlers are implemented)
-./api/accounts/build.sh
-# Deploy the service
-serverless deploy --config api/accounts/serverless.yml --stage main --aws-profile listbackup.ai
+serverless deploy --stage dev
 ```
 
-## Testing
-
-A test script is available at `/services/test-accounts-endpoints.sh` which tests:
-- Account listing
-- Account creation
-- Account retrieval
-- Account updates
-- CORS configuration
-
-Run the test script after deployment:
+### Deploy to Production
 ```bash
-./test-accounts-endpoints.sh
+serverless deploy --stage prod
+```
+
+### Testing
+Use the provided test script:
+```bash
+./test-accounts.sh
 ```
 
 ## Security Considerations
 
-1. **Authentication**: All endpoints require valid JWT tokens
-2. **Authorization**: Users can only access accounts they have permissions for
-3. **Data Isolation**: Strict account-based data isolation
-4. **Hierarchical Permissions**: Permissions can be inherited or overridden
-5. **Audit Trail**: All account changes are logged to activity table
+1. **Authentication**: All endpoints require valid JWT tokens from Cognito
+2. **Authorization**: User permissions are checked via the UserAccounts table
+3. **Data Isolation**: Users can only access accounts they have relationships with
+4. **Audit Trail**: All account modifications are logged to the Activity table
+5. **Soft Deletes**: Accounts are marked as deleted rather than removed
 
-## Implementation Notes
+## Error Handling
 
-1. **Account IDs**: Prefixed with "account:" for consistency
-2. **Path Structure**: Uses forward slashes for hierarchy paths
-3. **Cascade Operations**: Careful handling of sub-account deletion
-4. **Performance**: Path-based queries for efficient hierarchy traversal
-5. **Limits**: Plan-based limits enforced at creation/update
+Common error responses:
+- `400 Bad Request`: Invalid input or validation failure
+- `401 Unauthorized`: Missing or invalid authentication
+- `403 Forbidden`: Insufficient permissions
+- `404 Not Found`: Account not found
+- `409 Conflict`: Business rule violation (e.g., deleting account with sub-accounts)
+- `500 Internal Server Error`: Unexpected server error
 
-## Current Status
+## Monitoring
 
-**IMPORTANT**: The account handlers are currently placeholder implementations. The actual business logic needs to be implemented for:
-- Proper hierarchical account management
-- Permission checking
-- Usage tracking and limits
-- Data aggregation
-- Cascade operations
+### CloudWatch Logs
+All Lambda functions log to CloudWatch with the pattern:
+`/aws/lambda/listbackup-accounts-{stage}-{function}`
 
-## Future Enhancements
+### Key Metrics
+- Function invocation count
+- Error rates
+- Duration/latency
+- Memory usage
 
-1. **Account Templates**: Pre-configured account settings
-2. **Bulk Operations**: Create/update multiple accounts
-3. **Account Archiving**: Soft delete with data retention
-4. **Usage Alerts**: Notifications for limit approaching
-5. **Account Cloning**: Duplicate account structures
-6. **Cross-Account Reporting**: Aggregated analytics
-7. **Account Migration**: Move accounts between hierarchies
+### X-Ray Tracing
+Distributed tracing is enabled for all functions to track request flow.
+
+## Development
+
+### Local Testing
+1. Set up AWS credentials
+2. Configure environment variables
+3. Run individual handlers locally
+
+### Adding New Features
+1. Update the handler in `cmd/handlers/accounts/`
+2. Update `serverless.yml` if adding new endpoints
+3. Update `build.sh` to include new handlers
+4. Deploy and test
+
+## Support
+
+For issues or questions:
+- Check CloudWatch logs for detailed error information
+- Review the test script for example usage
+- Contact the platform team for assistance

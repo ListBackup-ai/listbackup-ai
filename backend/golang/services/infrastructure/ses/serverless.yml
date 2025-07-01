@@ -1,0 +1,216 @@
+service: listbackup-infrastructure-ses
+
+frameworkVersion: '4'
+
+provider:
+  name: aws
+  profile: listbackup.ai
+  runtime: provided.al2023
+  region: us-west-2
+  stage: ${opt:stage, 'dev'}
+  deploymentBucket:
+    blockPublicAccess: true
+
+# No functions - this is infrastructure only
+functions: {}
+
+resources:
+  Description: "SES (Simple Email Service) infrastructure for ListBackup.ai - email sending and domain verification"
+  
+  Resources:
+    # SES Domain Identity for listbackup.ai
+    SESDomainIdentity:
+      Type: AWS::SES::EmailIdentity
+      Properties:
+        EmailIdentity: listbackup.ai
+        DkimSigningAttributes:
+          NextSigningKeyLength: RSA_2048_BIT
+
+    # SES Configuration Set for tracking and reputation
+    SESConfigurationSet:
+      Type: AWS::SES::ConfigurationSet
+      Properties:
+        Name: listbackup-${self:provider.stage}-config-set
+        ReputationOptions:
+          ReputationMetricsEnabled: true
+        SendingOptions:
+          SendingEnabled: true
+
+    # Event Destination for SES events (bounces, complaints, deliveries)
+    SESEventDestination:
+      Type: AWS::SES::ConfigurationSetEventDestination
+      Properties:
+        ConfigurationSetName: {"Ref": "SESConfigurationSet"}
+        EventDestination:
+          Name: listbackup-${self:provider.stage}-events
+          Enabled: true
+          CloudWatchDestination:
+            DimensionConfigurations:
+              - DimensionName: MessageTag
+                DimensionValueSource: messageTag
+                DefaultDimensionValue: none
+          MatchingEventTypes:
+            - send
+            - bounce
+            - complaint
+            - delivery
+            - reject
+            - open
+            - click
+            - renderingFailure
+
+    # SNS Topic for SMS (for MFA and notifications)
+    SNSTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: listbackup-${self:provider.stage}-sms-topic
+        DisplayName: ListBackup SMS Notifications
+
+    # SMS Spending Limit (to prevent unexpected charges)
+    # Note: SMS attributes must be set via API/CLI, not CloudFormation
+    # Keeping this as a custom resource would require a Lambda function
+
+    # IAM Role for SMS delivery status logging
+    SMSDeliveryRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: listbackup-${self:provider.stage}-sms-delivery-role
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: sns.amazonaws.com
+              Action: sts:AssumeRole
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/service-role/AmazonSNSRole
+        Policies:
+          - PolicyName: CloudWatchLogsPolicy
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - logs:CreateLogGroup
+                    - logs:CreateLogStream
+                    - logs:PutLogEvents
+                    - logs:PutMetricFilter
+                    - logs:PutRetentionPolicy
+                  Resource: "*"
+
+    # Email templates can be added here
+    PasswordResetTemplate:
+      Type: AWS::SES::Template
+      Properties:
+        Template:
+          TemplateName: listbackup-${self:provider.stage}-password-reset
+          SubjectPart: "Password Reset Request - ListBackup.ai"
+          HtmlPart: |
+            <html>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+              <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                <h2 style="color: #2c3e50;">Password Reset Request</h2>
+                <p>Hello {{name}},</p>
+                <p>You requested to reset your password for ListBackup.ai.</p>
+                <div style="background-color: #f4f4f4; padding: 20px; border-radius: 5px; text-align: center; margin: 20px 0;">
+                  <p style="margin: 0;">Your password reset code is:</p>
+                  <h1 style="font-size: 32px; letter-spacing: 5px; color: #3498db; margin: 10px 0;">{{code}}</h1>
+                </div>
+                <p>This code will expire in 15 minutes.</p>
+                <p>If you didn't request this password reset, please ignore this email or contact support if you have concerns.</p>
+                <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+                <p style="font-size: 12px; color: #666;">
+                  Best regards,<br>
+                  The ListBackup.ai Team
+                </p>
+              </div>
+            </body>
+            </html>
+          TextPart: |
+            Password Reset Request
+
+            Hello {{name}},
+
+            You requested to reset your password for ListBackup.ai.
+
+            Your password reset code is: {{code}}
+
+            This code will expire in 15 minutes.
+
+            If you didn't request this password reset, please ignore this email.
+
+            Best regards,
+            The ListBackup.ai Team
+
+    MFASetupTemplate:
+      Type: AWS::SES::Template
+      Properties:
+        Template:
+          TemplateName: listbackup-${self:provider.stage}-mfa-setup
+          SubjectPart: "Your ListBackup.ai MFA Setup Code"
+          HtmlPart: |
+            <html>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+              <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                <h2 style="color: #2c3e50;">Multi-Factor Authentication Setup</h2>
+                <p>Hello {{name}},</p>
+                <p>Your MFA setup code for ListBackup.ai is:</p>
+                <div style="background-color: #f4f4f4; padding: 20px; border-radius: 5px; text-align: center; margin: 20px 0;">
+                  <h1 style="font-size: 32px; letter-spacing: 5px; color: #3498db; margin: 10px 0;">{{code}}</h1>
+                </div>
+                <p>This code will expire in 5 minutes.</p>
+                <p>If you didn't request this code, please ignore this email.</p>
+                <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+                <p style="font-size: 12px; color: #666;">
+                  Best regards,<br>
+                  The ListBackup.ai Team
+                </p>
+              </div>
+            </body>
+            </html>
+          TextPart: |
+            Multi-Factor Authentication Setup
+
+            Hello {{name}},
+
+            Your MFA setup code for ListBackup.ai is: {{code}}
+
+            This code will expire in 5 minutes.
+
+            If you didn't request this code, please ignore this email.
+
+            Best regards,
+            The ListBackup.ai Team
+
+  # CloudFormation Outputs
+  Outputs:
+    SESDomainIdentity:
+      Description: SES Domain Identity
+      Value: {"Ref": "SESDomainIdentity"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-DomainIdentity
+
+    SESConfigurationSetName:
+      Description: SES Configuration Set Name
+      Value: {"Ref": "SESConfigurationSet"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-ConfigurationSetName
+
+    SNSTopicArn:
+      Description: SNS Topic ARN for SMS
+      Value: {"Ref": "SNSTopic"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-SNSTopicArn
+
+    PasswordResetTemplateName:
+      Description: Password Reset Email Template Name
+      Value: listbackup-${self:provider.stage}-password-reset
+      Export:
+        Name: ${self:service}-${self:provider.stage}-PasswordResetTemplateName
+
+    MFASetupTemplateName:
+      Description: MFA Setup Email Template Name
+      Value: listbackup-${self:provider.stage}-mfa-setup
+      Export:
+        Name: ${self:service}-${self:provider.stage}-MFASetupTemplateName
+

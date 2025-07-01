@@ -19,6 +19,11 @@ HANDLERS=(
     "get-settings"
     "update-settings"
     "get-user-accounts"
+    "list"
+    "get"
+    "update"
+    "delete"
+    "search"
 )
 
 for handler in "${HANDLERS[@]}"; do

@@ -37,6 +37,44 @@ resources:
         Type: String
         Value: {"Ref": "ApiSSLCertificate"}
 
+    # 3. SES DKIM Record 1
+    SESDKIM1:
+      Type: AWS::Route53::RecordSet
+      Properties:
+        HostedZoneId: "Z01040453V93CTQT4QFNW" # The Hosted Zone ID for listbackup.ai
+        Name: 6wdt56eexvlikri55brf5k3puuutz5ya._domainkey.listbackup.ai
+        Type: CNAME
+        TTL: 300
+        ResourceRecords:
+          - 6wdt56eexvlikri55brf5k3puuutz5ya.dkim.amazonses.com
+
+    # 4. SES DKIM Record 2
+    SESDKIM2:
+      Type: AWS::Route53::RecordSet
+      Properties:
+        HostedZoneId: "Z01040453V93CTQT4QFNW" # The Hosted Zone ID for listbackup.ai
+        Name: v5b3esck5qhpee5autnoio6m24cuix43._domainkey.listbackup.ai
+        Type: CNAME
+        TTL: 300
+        ResourceRecords:
+          - v5b3esck5qhpee5autnoio6m24cuix43.dkim.amazonses.com
+
+    # 5. SES DKIM Record 3
+    SESDKIM3:
+      Type: AWS::Route53::RecordSet
+      Properties:
+        HostedZoneId: "Z01040453V93CTQT4QFNW" # The Hosted Zone ID for listbackup.ai
+        Name: zooe4r3bbzfgwdt5tnoy4pdngd7gxb2e._domainkey.listbackup.ai
+        Type: CNAME
+        TTL: 300
+        ResourceRecords:
+          - zooe4r3bbzfgwdt5tnoy4pdngd7gxb2e.dkim.amazonses.com
+
+    # Note: MX record already exists for Google SMTP
+    # Note: SPF record should be manually added to existing TXT record
+    # to avoid conflicts with other TXT records like HubSpot verification
+    # Note: DMARC record already exists, can be updated manually if needed
+
   Outputs:
     SSLCertificateArn:
       Description: "The ARN of the wildcard SSL certificate for *.api.listbackup.ai"

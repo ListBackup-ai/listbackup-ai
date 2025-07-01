@@ -5,8 +5,10 @@
 echo "Building auth service Lambda functions..."
 
 # Set variables
-HANDLERS_DIR="/Users/nickkulavic/Projects/listbackup.ai/listbackup-ai-v2/backend/golang/cmd/handlers/auth"
-BIN_DIR="./bin/auth"
+SERVICE_DIR=$(cd "$(dirname "$0")" && pwd)
+ROOT_DIR="$SERVICE_DIR/../../.."
+HANDLERS_DIR="$ROOT_DIR/cmd/handlers/auth"
+BIN_DIR="$SERVICE_DIR/bin/auth"
 
 # Create bin directory
 mkdir -p "$BIN_DIR"
@@ -20,13 +22,19 @@ HANDLERS=(
     "status"
     "get-profile"
     "get-available-accounts"
+    "mfa-setup"
+    "mfa-verify"
+    "password-reset-request"
+    "password-reset-confirm"
+    "change-password"
+    "verify-account"
 )
 
 for handler in "${HANDLERS[@]}"; do
     echo "Building $handler..."
     if [ -d "$HANDLERS_DIR/$handler" ]; then
         # Build for Linux ARM64 (Lambda runtime)
-        GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -tags lambda.norpc -o "$BIN_DIR/${handler}_bootstrap" "$HANDLERS_DIR/$handler/main.go"
+        cd "$HANDLERS_DIR/$handler" && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -tags lambda.norpc -o "$BIN_DIR/${handler}_bootstrap" main.go && cd - > /dev/null
         
         if [ -f "$BIN_DIR/${handler}_bootstrap" ]; then
             # Rename to bootstrap and create zip file

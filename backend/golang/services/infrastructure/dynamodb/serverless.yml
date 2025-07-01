@@ -634,6 +634,97 @@ resources:
           - Key: Stage
             Value: ${self:provider.stage}
 
+    # MFA and Security Tables
+    MFACodesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: listbackup-${self:provider.stage}-mfa-codes
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: codeId
+            AttributeType: S
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: createdAt
+            AttributeType: S
+        KeySchema:
+          - AttributeName: codeId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: UserIndex
+            KeySchema:
+              - AttributeName: userId
+                KeyType: HASH
+              - AttributeName: createdAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        TimeToLiveSpecification:
+          AttributeName: expiresAt
+          Enabled: true
+        Tags:
+          - Key: Service
+            Value: listbackup-infrastructure-dynamodb
+          - Key: Stage
+            Value: ${self:provider.stage}
+          - Key: Purpose
+            Value: MFA code storage with TTL
+
+    # Rate Limiting Table
+    RateLimitsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: listbackup-${self:provider.stage}-rate-limits
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: key
+            AttributeType: S
+        KeySchema:
+          - AttributeName: key
+            KeyType: HASH
+        TimeToLiveSpecification:
+          AttributeName: ttl
+          Enabled: true
+        Tags:
+          - Key: Service
+            Value: listbackup-infrastructure-dynamodb
+          - Key: Stage
+            Value: ${self:provider.stage}
+          - Key: Purpose
+            Value: Rate limiting for API endpoints
+
+    # Account Lockout Table
+    AccountLockoutTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: listbackup-${self:provider.stage}-account-lockouts
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: email
+            AttributeType: S
+        KeySchema:
+          - AttributeName: userId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: EmailIndex
+            KeySchema:
+              - AttributeName: email
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+        TimeToLiveSpecification:
+          AttributeName: lockoutExpiry
+          Enabled: true
+        Tags:
+          - Key: Service
+            Value: listbackup-infrastructure-dynamodb
+          - Key: Stage
+            Value: ${self:provider.stage}
+          - Key: Purpose
+            Value: Account lockout tracking
+
   # CloudFormation Outputs - Export all table names and ARNs for other services to import
   Outputs:
     # Table Names
@@ -761,7 +852,27 @@ resources:
       Description: Tags table name
       Value: {"Ref": "TagsTable"}
       Export:
-        Name: ${self:service}-${self:provider.stage}-TagsTableName    
+        Name: ${self:service}-${self:provider.stage}-TagsTableName
+
+    MFACodesTableName:
+      Description: MFA Codes table name
+      Value: {"Ref": "MFACodesTable"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-MFACodesTableName
+
+    RateLimitsTableName:
+      Description: Rate Limits table name
+      Value: {"Ref": "RateLimitsTable"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-RateLimitsTableName
+
+    AccountLockoutTableName:
+      Description: Account Lockout table name
+      Value: {"Ref": "AccountLockoutTable"}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-AccountLockoutTableName
+        
+    # Table ARNs
     PlatformsTableArn:
       Description: Platforms table ARN
       Value: {"Fn::GetAtt": ["PlatformsTable", "Arn"]}
@@ -839,3 +950,21 @@ resources:
       Value: {"Fn::GetAtt": ["TagsTable", "Arn"]}
       Export:
         Name: ${self:service}-${self:provider.stage}-TagsTableArn
+
+    MFACodesTableArn:
+      Description: MFA Codes table ARN
+      Value: {"Fn::GetAtt": ["MFACodesTable", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-MFACodesTableArn
+
+    RateLimitsTableArn:
+      Description: Rate Limits table ARN
+      Value: {"Fn::GetAtt": ["RateLimitsTable", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-RateLimitsTableArn
+
+    AccountLockoutTableArn:
+      Description: Account Lockout table ARN
+      Value: {"Fn::GetAtt": ["AccountLockoutTable", "Arn"]}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-AccountLockoutTableArn

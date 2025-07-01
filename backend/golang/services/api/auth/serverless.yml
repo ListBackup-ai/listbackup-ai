@@ -44,11 +44,16 @@ custom:
               type: "string"
               description: "User's full name"
               example: "John Doe"
+            phoneNumber:
+              type: "string"
+              description: "User's phone number with country code (e.g., +1234567890)"
+              example: "+15551234567"
+              pattern: "^\\+[1-9]\\d{9,14}$"
             company:
               type: "string"
               description: "Optional company name"
               example: "Acme Corporation"
-          required: ["email", "password", "name"]
+          required: ["email", "password", "name", "phoneNumber"]
       - name: "LoginRequest"
         description: "User login request"
         contentType: "application/json"
@@ -149,6 +154,7 @@ provider:
     ACCOUNTS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.AccountsTableName}
     USER_ACCOUNTS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UserAccountsTableName}
     ACTIVITY_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.ActivityTableName}
+    MFA_CODES_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.MFACodesTableName}
     # EventBridge from infrastructure-eventbridge service
     EVENT_BUS_NAME: ${cf:listbackup-infrastructure-eventbridge-${self:provider.stage}.EventBusName}
     # API configuration
@@ -175,10 +181,12 @@ provider:
             - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.AccountsTableArn}
             - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UserAccountsTableArn}
             - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.ActivityTableArn}
+            - ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.MFACodesTableArn}
             - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UsersTableArn}/index/*"
             - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.AccountsTableArn}/index/*"
             - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UserAccountsTableArn}/index/*"
             - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.ActivityTableArn}/index/*"
+            - "${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.MFACodesTableArn}/index/*"
         # Cognito permissions for user management
         - Effect: Allow
           Action:
@@ -218,6 +226,23 @@ provider:
           Action:
             - xray:PutTraceSegments
             - xray:PutTelemetryRecords
+          Resource: "*"
+        # SNS permissions for SMS notifications
+        - Effect: Allow
+          Action:
+            - sns:Publish
+            - sns:CreatePlatformEndpoint
+            - sns:SetSMSAttributes
+            - sns:GetSMSAttributes
+          Resource: "*"
+        # SES permissions for email notifications
+        - Effect: Allow
+          Action:
+            - ses:SendEmail
+            - ses:SendRawEmail
+            - ses:SendTemplatedEmail
+            - ses:GetSendStatistics
+            - ses:GetSendQuota
           Resource: "*"
 
 functions:
@@ -269,6 +294,8 @@ functions:
       - httpApi:
           path: /auth/refresh
           method: post
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
     environment:
       FUNCTION_NAME: auth-refresh
 
@@ -281,6 +308,8 @@ functions:
       - httpApi:
           path: /auth/logout
           method: post
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
     environment:
       FUNCTION_NAME: auth-logout
 
@@ -311,4 +340,91 @@ functions:
             id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
     environment:
       FUNCTION_NAME: auth-get-available-accounts
+
+  # MFA endpoints
+  mfaSetup:
+    handler: bootstrap
+    package:
+      artifact: bin/auth/mfa-setup.zip
+    description: "Setup MFA for user account via SMS or Email verification"
+    memorySize: 256
+    timeout: 10
+    events:
+      - httpApi:
+          path: /auth/mfa/setup
+          method: post
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: auth-mfa-setup
+
+  mfaVerify:
+    handler: bootstrap
+    package:
+      artifact: bin/auth/mfa-verify.zip
+    description: "Verify MFA code and enable MFA for user account"
+    events:
+      - httpApi:
+          path: /auth/mfa/verify
+          method: post
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: auth-mfa-verify
+
+  # Password management endpoints
+  passwordResetRequest:
+    handler: bootstrap
+    package:
+      artifact: bin/auth/password-reset-request.zip
+    description: "Request password reset code via email"
+    memorySize: 256
+    timeout: 10
+    events:
+      - httpApi:
+          path: /auth/password/reset
+          method: post
+    environment:
+      FUNCTION_NAME: auth-password-reset-request
+
+  passwordResetConfirm:
+    handler: bootstrap
+    package:
+      artifact: bin/auth/password-reset-confirm.zip
+    description: "Confirm password reset with code and set new password"
+    events:
+      - httpApi:
+          path: /auth/password/confirm
+          method: post
+    environment:
+      FUNCTION_NAME: auth-password-reset-confirm
+
+  changePassword:
+    handler: bootstrap
+    package:
+      artifact: bin/auth/change-password.zip
+    description: "Change password for authenticated user"
+    events:
+      - httpApi:
+          path: /auth/password/change
+          method: post
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: auth-change-password
+
+  # Account verification endpoint
+  verifyAccount:
+    handler: bootstrap
+    package:
+      artifact: bin/auth/verify-account.zip
+    description: "Send and verify account verification codes via email or SMS"
+    memorySize: 256
+    timeout: 10
+    events:
+      - httpApi:
+          path: /auth/verify
+          method: post
+    environment:
+      FUNCTION_NAME: auth-verify-account
 

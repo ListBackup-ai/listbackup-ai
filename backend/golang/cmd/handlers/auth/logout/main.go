@@ -14,10 +14,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/cognitoidentityprovider"
 )
 
-type LogoutRequest struct {
-	AccessToken string `json:"accessToken"`
-}
-
 type LogoutResponse struct {
 	Success bool        `json:"success"`
 	Message string      `json:"message"`
@@ -40,7 +36,7 @@ func Handle(ctx context.Context, event events.APIGatewayV2HTTPRequest) (events.A
 			Headers: map[string]string{
 				"Access-Control-Allow-Origin":  "*",
 				"Access-Control-Allow-Methods": "POST, OPTIONS",
-				"Access-Control-Allow-Headers": "Content-Type",
+				"Access-Control-Allow-Headers": "Content-Type, Authorization",
 			},
 			Body: "",
 		}, nil
@@ -52,23 +48,44 @@ func Handle(ctx context.Context, event events.APIGatewayV2HTTPRequest) (events.A
 		return createErrorResponse(500, "Authentication service not configured"), nil
 	}
 
-	// Parse request body
-	if event.Body == "" {
-		return createErrorResponse(400, "Request body is required"), nil
+	// Get the username from the authorizer context
+	// The authorizer adds claims to the request context
+	var username string
+	if event.RequestContext.Authorizer != nil && event.RequestContext.Authorizer.JWT != nil {
+		claims := event.RequestContext.Authorizer.JWT.Claims
+		if sub, ok := claims["sub"]; ok {
+			username = sub
+			log.Printf("Username from authorizer context: %s", username)
+		}
+		if cognitoUsername, ok := claims["cognito:username"]; ok {
+			// Fallback to cognito:username if sub is not available
+			if username == "" {
+				username = cognitoUsername
+			}
+			log.Printf("Cognito username from claim: %s", cognitoUsername)
+		}
 	}
 
-	var logoutReq LogoutRequest
-	if err := json.Unmarshal([]byte(event.Body), &logoutReq); err != nil {
-		log.Printf("Failed to parse request body: %v", err)
-		return createErrorResponse(400, "Invalid JSON format"), nil
+	// If we still don't have a username, check the Lambda authorizer context
+	if username == "" && event.RequestContext.Authorizer != nil && event.RequestContext.Authorizer.Lambda != nil {
+		if userID, ok := event.RequestContext.Authorizer.Lambda["userId"]; ok {
+			// Extract the actual user ID from the format "user:xxxxx"
+			userIDStr := userID.(string)
+			if strings.HasPrefix(userIDStr, "user:") {
+				username = strings.TrimPrefix(userIDStr, "user:")
+				log.Printf("Username from Lambda authorizer: %s", username)
+			} else {
+				username = userIDStr
+			}
+		}
 	}
 
-	// Validate required fields
-	if logoutReq.AccessToken == "" {
-		return createErrorResponse(400, "Access token is required"), nil
+	if username == "" {
+		log.Printf("Failed to extract username from authorizer context")
+		return createErrorResponse(401, "Invalid authorization context"), nil
 	}
 
-	log.Printf("Logout request received")
+	log.Printf("Logout request received for user: %s", username)
 
 	// Create AWS session
 	log.Printf("Creating AWS session...")
@@ -91,13 +108,15 @@ func Handle(ctx context.Context, event events.APIGatewayV2HTTPRequest) (events.A
 	cognitoClient := cognitoidentityprovider.New(sess)
 	log.Printf("Cognito client created successfully")
 
-	// Global sign out
-	signOutInput := &cognitoidentityprovider.GlobalSignOutInput{
-		AccessToken: aws.String(logoutReq.AccessToken),
+	// Use AdminUserGlobalSignOut to sign out the user
+	// This requires the username instead of the access token
+	signOutInput := &cognitoidentityprovider.AdminUserGlobalSignOutInput{
+		UserPoolId: aws.String(cognitoUserPoolID),
+		Username:   aws.String(username),
 	}
 
-	log.Printf("Performing global sign out")
-	_, err = cognitoClient.GlobalSignOut(signOutInput)
+	log.Printf("Performing admin user global sign out for user: %s", username)
+	_, err = cognitoClient.AdminUserGlobalSignOut(signOutInput)
 	if err != nil {
 		log.Printf("Logout error: %v", err)
 		return handleLogoutError(err), nil
@@ -109,6 +128,7 @@ func Handle(ctx context.Context, event events.APIGatewayV2HTTPRequest) (events.A
 		Message: "Logout successful",
 		Data: map[string]interface{}{
 			"message": "User logged out successfully",
+			"userId":  username,
 		},
 	}
 
@@ -130,9 +150,11 @@ func handleLogoutError(err error) events.APIGatewayProxyResponse {
 
 	errStr := err.Error()
 	if strings.Contains(errStr, "NotAuthorizedException") {
-		return createErrorResponse(401, "Invalid access token")
-	} else if strings.Contains(errStr, "TokenExpiredException") {
-		return createErrorResponse(401, "Access token expired")
+		return createErrorResponse(401, "Not authorized to perform this action")
+	} else if strings.Contains(errStr, "UserNotFoundException") {
+		return createErrorResponse(404, "User not found")
+	} else if strings.Contains(errStr, "TooManyRequestsException") {
+		return createErrorResponse(429, "Too many requests")
 	}
 
 	return createErrorResponse(500, "Logout failed")

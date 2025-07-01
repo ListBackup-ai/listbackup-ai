@@ -1,0 +1,32 @@
+Resources:
+  RateLimitsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ${self:custom.stage}-listbackup-rate-limits
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: key
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+        - Key: Environment
+          Value: ${self:custom.stage}
+        - Key: Service
+          Value: rate-limiting
+        - Key: Application
+          Value: listbackup-ai
+
+Outputs:
+  RateLimitsTableName:
+    Value: !Ref RateLimitsTable
+    Export:
+      Name: ${self:custom.stage}-RateLimitsTableName
+  RateLimitsTableArn:
+    Value: !GetAtt RateLimitsTable.Arn
+    Export:
+      Name: ${self:custom.stage}-RateLimitsTableArn

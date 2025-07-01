@@ -7,6 +7,7 @@ package:
 
 provider:
   name: aws
+  profile: listbackup.ai
   runtime: provided.al2023
   architecture: arm64  # Better price/performance ratio
   region: us-west-2
@@ -67,6 +68,10 @@ provider:
           Action:
             - cognito-idp:AdminGetUser
             - cognito-idp:AdminUpdateUserAttributes
+            - cognito-idp:AdminDisableUser
+            - cognito-idp:AdminEnableUser
+            - cognito-idp:AdminDeleteUser
+            - cognito-idp:ListUsers
             - cognito-idp:GetUser
             - cognito-idp:UpdateUserAttributes
           Resource:
@@ -167,3 +172,74 @@ functions:
             id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
     environment:
       FUNCTION_NAME: users-get-user-accounts
+
+  # Admin user management endpoints
+  usersList:
+    handler: bootstrap
+    package:
+      artifact: bin/users/list.zip
+    description: "List all users with pagination and filtering (admin only)"
+    events:
+      - httpApi:
+          path: /users
+          method: get
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: users-list
+
+  usersGet:
+    handler: bootstrap
+    package:
+      artifact: bin/users/get.zip
+    description: "Get a specific user by ID (admin only)"
+    events:
+      - httpApi:
+          path: /users/{userId}
+          method: get
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: users-get
+
+  usersUpdate:
+    handler: bootstrap
+    package:
+      artifact: bin/users/update.zip
+    description: "Update a specific user by ID (admin only)"
+    events:
+      - httpApi:
+          path: /users/{userId}
+          method: put
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: users-update
+
+  usersDelete:
+    handler: bootstrap
+    package:
+      artifact: bin/users/delete.zip
+    description: "Delete/deactivate a user by ID (admin only)"
+    events:
+      - httpApi:
+          path: /users/{userId}
+          method: delete
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: users-delete
+
+  usersSearch:
+    handler: bootstrap
+    package:
+      artifact: bin/users/search.zip
+    description: "Search users by email, name, or other criteria (admin only)"
+    events:
+      - httpApi:
+          path: /users/search
+          method: get
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: users-search

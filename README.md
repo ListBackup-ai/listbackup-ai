@@ -15,23 +15,29 @@ ListBackup.ai is a comprehensive cloud-based solution that automatically backs u
 - **Real-time Monitoring** - Track backup status, system health, and data flow
 - **Secure Storage** - Military-grade encryption for data at rest and in transit
 - **Data Export** - Export to multiple formats and external storage providers
+- **OAuth 2.0 Support** - Secure authentication for all platform integrations
+- **Multi-Account Support** - Manage multiple accounts per platform
 
 ### Platform Integrations
 - **CRM Systems**: Keap, GoHighLevel, HubSpot, ActiveCampaign
 - **Payment Processing**: Stripe, Square, QuickBooks
 - **Communication**: MailChimp, Zendesk, Slack
 - **Cloud Storage**: Google Drive, Dropbox, Box
+- **E-commerce**: Shopify, WooCommerce
 - **Custom Integrations**: REST API support for any platform
 
 ## 🏗️ Architecture
 
 Built on AWS serverless infrastructure for unlimited scalability:
 - **Frontend**: Next.js 14 with TypeScript and Tailwind CSS
-- **Backend**: Go and Node.js Lambda functions
-- **Database**: DynamoDB with automatic scaling
-- **Storage**: S3 with lifecycle policies
+- **Backend**: Go and Node.js Lambda functions  
+- **Infrastructure**: Modular serverless services (DynamoDB, SQS, S3, EventBridge)
+- **Database**: 17 DynamoDB tables with automatic scaling
+- **Queues**: 6 FIFO SQS queues with dead letter queues
+- **Storage**: S3 with versioning and encryption
 - **Authentication**: AWS Cognito with MFA support
-- **API**: REST API with JWT authentication
+- **API**: REST API with custom JWT authorizer
+- **Events**: EventBridge for event-driven architecture
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed system design.
 
@@ -90,10 +96,22 @@ See deployment guides in `/docs` for detailed instructions.
 
 ## 📖 Documentation
 
+### Quick Links
 - [Architecture Overview](./ARCHITECTURE.md) - System design and components
-- [API Documentation](./docs/api/README.md) - REST API reference
+- [API Documentation](./project-docs/api/README.md) - REST API reference
+- [Developer Quickstart](./project-docs/getting-started/developer-quickstart.md) - Get started quickly
 - [Contributing Guide](./CONTRIBUTING.md) - How to contribute
 - [Security Policy](./SECURITY.md) - Security practices and reporting
+
+### Project Documentation
+- [Complete Architecture](./project-docs/architecture/complete-architecture.md) - Detailed system architecture
+- [Development Guidelines](./project-docs/development/development-guidelines.md) - Best practices
+- [DynamoDB Architecture](./project-docs/development/dynamodb-architecture.md) - Database design
+- [Phase Documentation](./project-planning/) - Infrastructure migration phases
+
+### API Endpoints
+- [Authentication & Authorization](./project-docs/api/authentication-authorization.md)
+- [API Explorer](./project-docs/api/explorer.md)
 
 ## 🔒 Security
 
@@ -161,12 +179,35 @@ This project is licensed under the MIT License - see the [LICENSE](./LICENSE) fi
 
 ## 🎯 Roadmap
 
+### In Progress
+- [x] Infrastructure modularization (Phases 1-6 complete)
+- [x] OAuth 2.0 implementation for all platforms
+- [ ] Phase 7-11: Platform services implementation
+
+### Upcoming Features
 - [ ] Mobile applications (iOS/Android)
 - [ ] Two-way sync capabilities
 - [ ] Advanced analytics dashboard
 - [ ] AI-powered insights
 - [ ] Webhook support
 - [ ] GraphQL API
+- [ ] Real-time data sync
+- [ ] Custom workflow automation
+
+## 📊 Project Status
+
+| Component | Status | Phase |
+|-----------|--------|-------|
+| Infrastructure Services | ✅ Complete | Phase 2 |
+| API Gateway | ✅ Complete | Phase 3 |
+| Auth Service | ✅ Complete | Phase 4 |
+| Users Service | ✅ Complete | Phase 5 |
+| Accounts Service | ✅ Complete | Phase 6 |
+| Platforms Service | 🚧 In Progress | Phase 7 |
+| Connections Service | 📋 Planned | Phase 8 |
+| Sources Service | 📋 Planned | Phase 9 |
+| Jobs Service | 📋 Planned | Phase 10 |
+| Utility Services | 📋 Planned | Phase 11 |
 
 ## 👥 Team
 
@@ -174,6 +215,6 @@ Built with ❤️ by the ListBackup.ai team.
 
 ---
 
-**Status**: Production Ready  
+**Status**: Active Development  
 **Version**: 1.0.0  
-**Last Updated**: June 2024
+**Last Updated**: December 2024

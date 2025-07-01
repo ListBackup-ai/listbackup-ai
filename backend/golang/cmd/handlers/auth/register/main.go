@@ -24,6 +24,7 @@ type User struct {
 	CognitoUserID    string    `json:"cognitoUserId" dynamodbav:"cognitoUserId"`
 	Email            string    `json:"email" dynamodbav:"email"`
 	Name             string    `json:"name" dynamodbav:"name"`
+	PhoneNumber      string    `json:"phoneNumber" dynamodbav:"phoneNumber"`
 	Status           string    `json:"status" dynamodbav:"status"`
 	CurrentAccountID string    `json:"currentAccountId" dynamodbav:"currentAccountId"`
 	CreatedAt        time.Time `json:"createdAt" dynamodbav:"createdAt"`
@@ -57,10 +58,11 @@ type UserAccount struct {
 }
 
 type RegisterRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Name     string `json:"name"`
-	Company  string `json:"company,omitempty"`
+	Email       string `json:"email"`
+	Password    string `json:"password"`
+	Name        string `json:"name"`
+	Company     string `json:"company,omitempty"`
+	PhoneNumber string `json:"phoneNumber"`
 }
 
 type RegisterResponse struct {
@@ -111,9 +113,14 @@ func Handle(ctx context.Context, event events.APIGatewayV2HTTPRequest) (events.A
 		return createErrorResponse(400, "Request body is required"), nil
 	}
 
+	// Log the raw body for debugging
+	log.Printf("Received body: %s", event.Body)
+	log.Printf("Body length: %d", len(event.Body))
+
 	var registerReq RegisterRequest
 	if err := json.Unmarshal([]byte(event.Body), &registerReq); err != nil {
 		log.Printf("Failed to parse request body: %v", err)
+		log.Printf("Raw body causing error: %s", event.Body)
 		return createErrorResponse(400, "Invalid JSON format"), nil
 	}
 
@@ -127,10 +134,21 @@ func Handle(ctx context.Context, event events.APIGatewayV2HTTPRequest) (events.A
 	if registerReq.Name == "" {
 		return createErrorResponse(400, "Name is required"), nil
 	}
+	if registerReq.PhoneNumber == "" {
+		return createErrorResponse(400, "Phone number is required"), nil
+	}
 
 	// Validate email format
 	if !strings.Contains(registerReq.Email, "@") || !strings.Contains(registerReq.Email, ".") {
 		return createErrorResponse(400, "Invalid email format"), nil
+	}
+
+	// Validate phone number format (must start with + and country code)
+	if !strings.HasPrefix(registerReq.PhoneNumber, "+") {
+		return createErrorResponse(400, "Phone number must include country code (e.g., +1234567890)"), nil
+	}
+	if len(registerReq.PhoneNumber) < 10 || len(registerReq.PhoneNumber) > 15 {
+		return createErrorResponse(400, "Invalid phone number format"), nil
 	}
 
 	// Validate password requirements
@@ -172,6 +190,14 @@ func Handle(ctx context.Context, event events.APIGatewayV2HTTPRequest) (events.A
 		{
 			Name:  aws.String("email_verified"),
 			Value: aws.String("true"),
+		},
+		{
+			Name:  aws.String("phone_number"),
+			Value: aws.String(registerReq.PhoneNumber),
+		},
+		{
+			Name:  aws.String("phone_number_verified"),
+			Value: aws.String("false"), // Will be verified when they set up MFA
 		},
 	}
 
@@ -218,7 +244,7 @@ func Handle(ctx context.Context, event events.APIGatewayV2HTTPRequest) (events.A
 	if err != nil {
 		log.Printf("Error setting permanent password: %v", err)
 		cleanupCognitoUser(cognitoClient, username)
-		return createErrorResponse(500, "Registration failed"), nil
+		return handleRegisterError(err), nil
 	}
 
 	log.Printf("Cognito user created successfully with permanent password: %s", username)
@@ -230,6 +256,7 @@ func Handle(ctx context.Context, event events.APIGatewayV2HTTPRequest) (events.A
 		CognitoUserID: cognitoUserID,
 		Email:         strings.ToLower(registerReq.Email),
 		Name:          registerReq.Name,
+		PhoneNumber:   registerReq.PhoneNumber,
 		Status:        "active",
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
@@ -416,6 +443,16 @@ func handleRegisterError(err error) events.APIGatewayProxyResponse {
 	if strings.Contains(errStr, "UsernameExistsException") {
 		return createErrorResponse(400, "User already exists")
 	} else if strings.Contains(errStr, "InvalidPasswordException") {
+		// Extract the specific password policy error message from Cognito
+		// The error format is: "InvalidPasswordException: Password does not conform to policy: <specific requirement>"
+		if idx := strings.Index(errStr, "Password does not conform to policy: "); idx != -1 {
+			specificError := errStr[idx+len("Password does not conform to policy: "):]
+			// Clean up the error message
+			if endIdx := strings.Index(specificError, "\n"); endIdx != -1 {
+				specificError = specificError[:endIdx]
+			}
+			return createErrorResponse(400, "Password does not meet requirements: " + specificError)
+		}
 		return createErrorResponse(400, "Password does not meet requirements")
 	} else if strings.Contains(errStr, "InvalidParameterException") {
 		return createErrorResponse(400, "Invalid email format")

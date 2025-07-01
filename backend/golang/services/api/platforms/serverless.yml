@@ -13,6 +13,7 @@ provider:
   timeout: 29
   tracing:
     lambda: true
+    httpApi: true
   httpApi:
     id: ${cf:listbackup-api-gateway-${self:provider.stage}.HttpApiId}
   environment:
@@ -29,6 +30,7 @@ provider:
     PLATFORM_SOURCES_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.PlatformSourcesTableName}
     PLATFORM_CONNECTIONS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.PlatformConnectionsTableName}
     USERS_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.UsersTableName}
+    OAUTH_STATES_TABLE: ${cf:listbackup-infrastructure-dynamodb-${self:provider.stage}.OAuthStatesTableName, 'listbackup-${self:provider.stage}-oauth-states'}
     # EventBridge from infrastructure-eventbridge service
     EVENT_BUS_NAME: ${cf:listbackup-infrastructure-eventbridge-${self:provider.stage}.EventBusName}
     # API configuration
@@ -76,6 +78,33 @@ provider:
             - dynamodb:ListTables
             - dynamodb:DescribeLimits
           Resource: "*"
+        # CloudWatch Logs permissions
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource: "arn:aws:logs:${self:provider.region}:*:*"
+        # X-Ray tracing permissions
+        - Effect: Allow
+          Action:
+            - xray:PutTraceSegments
+            - xray:PutTelemetryRecords
+          Resource: "*"
+        # EventBridge permissions
+        - Effect: Allow
+          Action:
+            - events:PutEvents
+          Resource:
+            - ${cf:listbackup-infrastructure-eventbridge-${self:provider.stage}.EventBusArn}
+        # SSM Parameter Store permissions for OAuth credentials
+        - Effect: Allow
+          Action:
+            - ssm:GetParameter
+            - ssm:GetParameters
+            - ssm:GetParametersByPath
+          Resource:
+            - "arn:aws:ssm:${self:provider.region}:*:parameter/listbackup/${self:provider.stage}/platforms/*/oauth/*"
 
 package:
   individually: true
@@ -86,14 +115,11 @@ functions:
     handler: bootstrap
     description: List available platforms
     package:
-      patterns:
-        - '!./**'
-        - './bin/platforms/list/bootstrap'
       artifact: './dist/platforms-list.zip'
     events:
       - httpApi:
           path: /platforms
-          method: get
+          method: GET
           authorizer:
             id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
     environment:
@@ -104,14 +130,11 @@ functions:
     handler: bootstrap
     description: Get platform details
     package:
-      patterns:
-        - '!./**'
-        - './bin/platforms/get/bootstrap'
       artifact: './dist/platforms-get.zip'
     events:
       - httpApi:
           path: /platforms/{id}
-          method: get
+          method: GET
           authorizer:
             id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
     environment:
@@ -123,10 +146,7 @@ functions:
     handler: bootstrap
     description: Get all available data sources for a specific platform
     package:
-      patterns:
-        - '!./**'
-        - './bin/api/platform-sources-list/bootstrap'
-      artifact: './dist/platforms-platform-sources-list.zip'
+      artifact: './dist/platform-sources-list.zip'
     events:
       - httpApi:
           path: /platforms/{platformId}/sources
@@ -142,10 +162,7 @@ functions:
     handler: bootstrap
     description: Get detailed information about a specific platform data source
     package:
-      patterns:
-        - '!./**'
-        - './bin/api/platform-sources-get/bootstrap'
-      artifact: './dist/platforms-platform-sources-get.zip'
+      artifact: './dist/platform-sources-get.zip'
     events:
       - httpApi:
           path: /platforms/{platformId}/sources/{platformSourceId}
@@ -162,10 +179,7 @@ functions:
     handler: bootstrap
     description: List all connections for a specific platform
     package:
-      patterns:
-        - '!./**'
-        - './bin/api/platform-connections-list/bootstrap'
-      artifact: './dist/platforms-platform-connections-list.zip'
+      artifact: './dist/platform-connections-list.zip'
     events:
       - httpApi:
           path: /platforms/{platformId}/connections
@@ -181,10 +195,7 @@ functions:
     handler: bootstrap
     description: Create a new connection to a platform using OAuth or API credentials
     package:
-      patterns:
-        - '!./**'
-        - './bin/api/platform-connections-create/bootstrap'
-      artifact: './dist/platforms-platform-connections-create.zip'
+      artifact: './dist/platform-connections-create.zip'
     events:
       - httpApi:
           path: /platforms/{platformId}/connections
@@ -195,3 +206,41 @@ functions:
       FUNCTION_NAME: platform-connections-create
       PLATFORMS_TABLE: ${self:provider.environment.PLATFORMS_TABLE}
       PLATFORM_CONNECTIONS_TABLE: ${self:provider.environment.PLATFORM_CONNECTIONS_TABLE}
+
+  # OAuth flow endpoints
+  oauthStart:
+    handler: bootstrap
+    description: Start OAuth flow for platform connection
+    package:
+      artifact: './dist/platform-connections-oauth-start.zip'
+    events:
+      - httpApi:
+          path: /platforms/{platformId}/oauth/start
+          method: GET
+          authorizer:
+            id: ${cf:listbackup-api-gateway-${self:provider.stage}.CognitoAuthorizerId}
+    environment:
+      FUNCTION_NAME: platform-connections-oauth-start
+      PLATFORMS_TABLE: ${self:provider.environment.PLATFORMS_TABLE}
+      PLATFORM_CONNECTIONS_TABLE: ${self:provider.environment.PLATFORM_CONNECTIONS_TABLE}
+      USERS_TABLE: ${self:provider.environment.USERS_TABLE}
+      # OAuth redirect URI
+      OAUTH_REDIRECT_URI: https://dev.api.listbackup.ai/platforms/oauth/callback
+
+  oauthCallback:
+    handler: bootstrap
+    description: Handle OAuth callback from providers
+    package:
+      artifact: './dist/platform-connections-oauth-callback.zip'
+    events:
+      - httpApi:
+          path: /platforms/oauth/callback
+          method: GET
+    environment:
+      FUNCTION_NAME: platform-connections-oauth-callback
+      PLATFORMS_TABLE: ${self:provider.environment.PLATFORMS_TABLE}
+      PLATFORM_CONNECTIONS_TABLE: ${self:provider.environment.PLATFORM_CONNECTIONS_TABLE}
+      USERS_TABLE: ${self:provider.environment.USERS_TABLE}
+      # Frontend redirect URIs for success/error
+      FRONTEND_SUCCESS_URL: https://dev.app.listbackup.ai/connections
+      FRONTEND_ERROR_URL: https://dev.app.listbackup.ai/connections/error
